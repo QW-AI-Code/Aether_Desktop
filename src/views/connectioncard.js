@@ -21,7 +21,7 @@
 //  پالت کشیده می‌شود.
 //
 //  رنگ‌ها عمداً از توکن‌های تم گرفته نمی‌شوند و در `app.css` به همان مقادیر
-//  برند پین شده‌اند (navy عمیق #0A0E1A، لهجهٔ mint #3EDBB0، یک سطح شیشهٔ
+//  برند پین شده‌اند (navy عمیق #070B14، لهجهٔ mint #3EDBB0، یک سطح شیشهٔ
 //  اسلیت برای همه‌چیزِ درونش) — همان دلیل موبایل: کارت باید در هر تمی مثل
 //  اِتِر به نظر برسد.
 //
@@ -43,9 +43,10 @@ import {
   trackSize,
   TWO_PI,
 } from '../ui/glowcycle.js'
+import { homeAnimationsEnabled } from '../ui/feedback.js'
 
 const CARD_RADIUS = 26
-const IDLE_ACCENT = '#4C8DFF'
+const IDLE_ACCENT = '#5B93FF'
 const ERROR_ACCENT = '#FF5C7A'
 const AETHER_MINT = '#3EDBB0'
 
@@ -104,6 +105,20 @@ const PING_POOR = '#FF5C7A'
 const CARD_TEXT_DIM = 'rgba(255,255,255,0.34)'
 
 const DASH = '\u2014'
+
+// AETHER-APP-PATCH 1.4.0 smart-label: `SMART` is a planning marker, not a transport.
+// If the backend label still carries it, use the first compact form (winning
+// transport) when available, otherwise drop the marker and show the pipeline name.
+export function resolveProtocolLabel(snapshot){
+  const raw = snapshot?.protocol
+  if (raw == null || raw === '') return DASH
+  if (!/\bSMART\b/i.test(raw)) return raw
+  const compact = Array.isArray(snapshot?.protocolCompact) ? snapshot.protocolCompact : []
+  const alt = compact.find(x => typeof x === 'string' && x.trim() && !/\bSMART\b/i.test(x))
+  if (alt) return alt
+  const stripped = raw.replace(/\s*\(\s*SMART\s*\)/ig, '').replace(/\bSMART\b/ig, '').replace(/\s{2,}/g, ' ').trim()
+  return stripped || raw
+}
 
 /**
  * متن را فقط وقتی می‌نویسد که عوض شده باشد.
@@ -239,6 +254,17 @@ export function pingStrength(connected, ms, bands = PING_BANDS_TUNNEL) {
  * @returns `{ node, paint(snapshot), destroy() }` — `paint` را جریان وضعیت
  *   صدا می‌زند و `destroy` هر دو حلقهٔ فریم را واقعاً لغو می‌کند.
  */
+/** 1.4.0-r5: «در حال اتصال…» / «در حال راستی‌آزمایی…» هرگز دو بار زیر هم نمی‌آیند.
+ *  زیرنویس حذف می‌شود اگر با عنوان یکی باشد، یا کوتاه‌تر و پیشوندِ عنوان باشد
+ *  («در حال راستی‌آزمایی…» در برابر «در حال راستی‌آزمایی اتصال…»). */
+const normStatusText = (v) => String(v ?? '').replace(/[.…\s\u200c]+/g, ' ').trim().toLowerCase()
+export function isRedundantCaption(title, caption) {
+  const a = normStatusText(title)
+  const b = normStatusText(caption)
+  if (!b) return true
+  return a === b || a.startsWith(b)
+}
+
 export function createConnectionCard() {
   const node = document.createElement('section')
   node.className = 'ccard'
@@ -583,8 +609,10 @@ export function createConnectionCard() {
     connected = snapshot.state === 'CONNECTED'
     accent = failed ? ERROR_ACCENT : connected ? AETHER_MINT : IDLE_ACCENT
 
-    if (connected && !cycle) cycle = new GlowCycle()
-    if (!connected && cycle) cycle = null
+    // نمایش و صدا: نور متحرک لبه فقط وقتی انیمیشن‌های صفحهٔ اصلی روشن‌اند (موبایل: LocalHomeAnimationsEnabled).
+    const glowOn = connected && homeAnimationsEnabled()
+    if (glowOn && !cycle) cycle = new GlowCycle()
+    if (!glowOn && cycle) cycle = null
 
     if (accent !== paintedAccent) {
       paintedAccent = accent
@@ -595,9 +623,13 @@ export function createConnectionCard() {
 
     // ۱. وضعیت
     const title = el('cc-title')
+    // پاک‌سازی + گارد بازرندر: setText فقط وقتی متن واقعاً عوض شده `textContent`
+    // را می‌نویسد (جایگزین کامل فرزندان، نه افزودن)، و زیرنویسِ هم‌متن با عنوان
+    // خالی می‌شود تا «در حال اتصال…» دو بار زیر هم نیفتد.
+    const captionText = isRedundantCaption(opts.title, opts.caption) ? '' : opts.caption
     setText(title, opts.title)
     if (title.style.color !== accent) title.style.color = accent
-    setText(el('cc-caption'), opts.caption)
+    setText(el('cc-caption'), captionText)
 
     // ۲. تایمر — در حالت قطع، خاموش و کم‌رنگ می‌ماند و صفر نشان می‌دهد؛
     //    ردیف هرگز از کارت حذف نمی‌شود تا ارتفاع کارت نلرزد.
@@ -607,6 +639,7 @@ export function createConnectionCard() {
 
     // ۳. پیل آی‌پی
     const info = snapshot.ipInfo
+    el('cc-ip-value').title = info ? [info.ip, info.alternateIp].filter(Boolean).join(' · ') : ''
     const viaTunnel = !!(info && info.viaTunnel)
     setText(el('cc-ip-label'), viaTunnel ? t('Server IP') : t('Your IP'))
     const pill = el('cc-pill')
@@ -656,7 +689,9 @@ export function createConnectionCard() {
     }
 
     // ۵–۷. اسلایدهای متا
-    setText(el('cc-proto'), connected ? (snapshot.protocol ?? DASH) : DASH)
+    // AETHER-APP-PATCH 1.4.0 smart-label: never show the generic `(SMART)` marker —
+    // prefer the compact label (which carries the winning transport) or strip it.
+    setText(el('cc-proto'), connected ? resolveProtocolLabel(snapshot) : DASH)
     // AETHER-APP-PATCH custom-configs: زنجیرهٔ کانفیگِ سفارشی کوتاه می‌شود تا جا شود.
     fitChain(el('cc-proto'), connected ? snapshot.protocolCompact : null)
     // ردیف «Endpoint» از کارت حذف شد (۱.۳.۰): دیگر کاربردی نداشت و فضا را برای بقیه آزاد می‌کند.

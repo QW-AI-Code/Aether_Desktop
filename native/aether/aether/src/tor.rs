@@ -201,12 +201,16 @@ pub async fn run_chain(_through: SocketAddr, _state: PathBuf) -> Result<()> {
 }
 
 #[cfg(not(feature = "tor"))]
-pub async fn run_only(_listen: SocketAddr, _state: PathBuf) -> Result<()> {
+pub async fn run_only(
+    _listener: tokio::net::TcpListener,
+    _listen: SocketAddr,
+    _state: PathBuf,
+) -> Result<()> {
     Err(unsupported())
 }
 
 #[cfg(not(feature = "tor"))]
-pub async fn start_reverse(_state: PathBuf) -> Result<SocketAddr> {
+pub async fn start_reverse(_state: PathBuf) -> Result<(SocketAddr, tokio::task::AbortHandle)> {
     Err(unsupported())
 }
 
@@ -347,6 +351,11 @@ mod with_tor {
         prepare_dir(&home)?;
         prepare_dir(&cache)?;
         prepare_dir(&data)?;
+        // >>> AETHER-APP-PATCH tor-cache-seed
+        if slot.is_some() {
+            seed::into_slot(state, &cache);
+        }
+        // <<< AETHER-APP-PATCH tor-cache-seed
 
         let mut builder = TorClientConfigBuilder::default();
         builder
@@ -600,6 +609,11 @@ mod with_tor {
     }
 
     async fn establish(state: &Path, through: Option<SocketAddr>, rounds: usize) -> Result<Client> {
+        // >>> AETHER-APP-PATCH tor-cache-seed
+        // No tor client of this process exists yet, so every cache on disk is at
+        // rest and can be copied consistently.
+        seed::snapshot(state);
+        // <<< AETHER-APP-PATCH tor-cache-seed
         let policy = bridges();
 
         if let Bridges::Manual(lines) = &policy {
@@ -766,12 +780,28 @@ mod with_tor {
     }
 
     fn announce_exit(proxy: SocketAddr, what: &'static str) {
+        let proxy = crate::socks::dialable(proxy);
         tokio::spawn(async move {
             crate::exitloc::report_through_socks(proxy, what).await;
         });
     }
 
-    async fn serve(listener: TcpListener, client: Client, kind: &'static str) -> Result<()> {
+    /// Binds Tor's http proxy when one is asked for, with --tor-http.
+    async fn bind_http() -> Result<Option<TcpListener>> {
+        match http_listen_address() {
+            Some(address) => Ok(Some(
+                crate::socks::bind_listener("tor http proxy", address, "--tor-http").await?,
+            )),
+            None => Ok(None),
+        }
+    }
+
+    async fn serve(
+        listener: TcpListener,
+        http: Option<TcpListener>,
+        client: Client,
+        kind: &'static str,
+    ) -> Result<()> {
         let connector = move |host: String, port: u16| {
             let client = client.clone();
             async move {
@@ -786,32 +816,28 @@ mod with_tor {
             }
         };
 
-        let http_task = match http_listen_address() {
-            Some(address) => {
-                let http_listener = crate::socks::bind_listener("tor http proxy", address).await?;
-                let connector = connector.clone();
-                Some(tokio::spawn(async move {
-                    if let Err(e) = crate::socks::serve_http_connector(
-                        http_listener,
-                        "tor http proxy",
-                        connector,
-                    )
-                    .await
-                    {
-                        log::error!("[-] the tor http proxy stopped: {e}");
-                    }
-                }))
+        // Served inside this future, so that it ends with it, letting go of its port, also when
+        // the future is dropped as the core ends. Its failing leaves the socks5 one serving.
+        let http_connector = connector.clone();
+        let http_proxy = async move {
+            if let Some(http_listener) = http {
+                if let Err(e) = crate::socks::serve_http_connector(
+                    http_listener,
+                    "tor http proxy",
+                    http_connector,
+                )
+                .await
+                {
+                    log::error!("[-] the tor http proxy stopped: {e}");
+                }
             }
-            None => None,
+            std::future::pending::<std::convert::Infallible>().await
         };
 
-        let outcome = crate::socks::serve_connector(listener, kind, connector).await;
-
-        if let Some(task) = http_task {
-            task.abort();
+        tokio::select! {
+            outcome = crate::socks::serve_connector(listener, kind, connector) => outcome,
+            never = http_proxy => match never {},
         }
-
-        outcome
     }
 
     /// The upstream proxy tor dials through when no tunnel carries it, see
@@ -838,24 +864,23 @@ mod with_tor {
         }
     }
 
+    /// Waits for the core's socks5 server on `through`: the core holds its listener from its start
+    /// and answers once a tunnel serves it.
     async fn wait_for_proxy(through: SocketAddr) {
-        let mut announced = false;
-        loop {
-            if tokio::net::TcpStream::connect(through).await.is_ok() {
-                return;
-            }
-            if !announced {
-                log::info!("[*] tor is waiting for the tunnel proxy at {through}");
-                announced = true;
-            }
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
+        crate::socks::until_answered(through, Duration::from_secs(2), || {
+            log::info!("[*] tor is waiting for the tunnel proxy at {through}")
+        })
+        .await
     }
 
     pub async fn run_chain(through: SocketAddr, state: PathBuf) -> Result<()> {
         init_tracing();
         let listen = listen_address();
-        let listener = crate::socks::bind_listener("tor socks5", listen).await?;
+        // Both held from the start, as the core holds its own: the user dials them while the
+        // tunnel and Tor come up, and no other program may take them meanwhile.
+        let listener = crate::socks::bind_listener("tor socks5", listen, "--tor-bind").await?;
+        let listen = listener.local_addr().unwrap_or(listen);
+        let http = bind_http().await?;
 
         wait_for_proxy(through).await;
         log::info!("[*] bootstrapping tor through the tunnel at {through}");
@@ -864,12 +889,16 @@ mod with_tor {
         log::info!("[+] tor is ready; {listen} leaves through tor, carried by the tunnel");
         announce_exit(listen, "tor through the tunnel");
 
-        serve(listener, client, "tor socks5").await
+        serve(listener, http, client, "tor socks5").await
     }
 
-    pub async fn run_only(listen: SocketAddr, state: PathBuf) -> Result<()> {
+    /// Tor with no tunnel underneath it, serving `listener`, which the core holds on `listen` from
+    /// its start; its http proxy is held from the start as well.
+    pub async fn run_only(listener: TcpListener, listen: SocketAddr, state: PathBuf) -> Result<()> {
         init_tracing();
-        let listener = crate::socks::bind_listener("tor socks5", listen).await?;
+        // The port the system gave, where --bind names port 0.
+        let listen = listener.local_addr().unwrap_or(listen);
+        let http = bind_http().await?;
 
         log::info!("[*] bootstrapping tor with no tunnel underneath it");
         announce_upstream();
@@ -878,31 +907,209 @@ mod with_tor {
         log::info!("[+] tor is ready; {listen} leaves through tor");
         announce_exit(listen, "tor");
 
-        serve(listener, client, "tor socks5").await
+        serve(listener, http, client, "tor socks5").await
     }
 
-    pub async fn start_reverse(state: PathBuf) -> Result<SocketAddr> {
+    /// Starts Tor for the tunnel to be dialled through: its socks5 address, and the handle that
+    /// ends it with the core.
+    pub async fn start_reverse(state: PathBuf) -> Result<(SocketAddr, tokio::task::AbortHandle)> {
         init_tracing();
         let listen = listen_address();
-        let listener = crate::socks::bind_listener("tor socks5", listen).await?;
+        let listener = crate::socks::bind_listener("tor socks5", listen, "--tor-bind").await?;
+        // Where the tunnel dials Tor: where its listener is bound, a port 0 asked for being the port
+        // the system picked.
+        let dialled = crate::socks::dialable(listener.local_addr().unwrap_or(listen));
 
         log::info!("[*] bootstrapping tor; the tunnel will be dialled through it");
         // The upstream is still the proxy aether was given: the caller points it at tor once tor is up.
         announce_upstream();
 
         let client = establish(&state, None, REVERSE_ATTEMPTS).await?;
-        log::info!("[+] tor is ready; the tunnel goes out through {listen}");
-        announce_exit(listen, "tor");
+        log::info!("[+] tor is ready; the tunnel goes out through {dialled}");
+        announce_exit(dialled, "tor");
 
-        tokio::spawn(async move {
-            if let Err(e) = serve(listener, client, "tor socks5").await {
+        let serving = tokio::spawn(async move {
+            let served = match bind_http().await {
+                Ok(http) => serve(listener, http, client, "tor socks5").await,
+                Err(e) => Err(e),
+            };
+            if let Err(e) = served {
                 log::error!("[-] the tor proxy stopped: {e}");
             }
         });
 
-        Ok(listen)
+        Ok((dialled, serving.abort_handle()))
     }
 
+    // >>> AETHER-APP-PATCH tor-cache-seed
+    /// Shares the directory cache between the bootstrap attempts.
+    ///
+    /// ROOT CAUSE (field logs `Config -> Tor`, 1.5.0): every attempt boots in a
+    /// cache of its own (`attempts/direct`, `attempts/obfs4`, ...). The direct
+    /// attempt loaded a complete, valid consensus from disk ("Loaded a good
+    /// directory from cache"), but the bridge attempt that followed it started
+    /// from an EMPTY cache ("Didn't get usable directory from cache") and had to
+    /// download the whole consensus and all 9 149 microdescriptors over an obfs4
+    /// bridge that was itself reached through the proxy chain - the one path on
+    /// which that download is slowest. The consensus is public and identical
+    /// for every attempt, so the freshest cache on disk is now copied into an
+    /// attempt that has nothing as good. Guard state (`state/`) stays separate.
+    mod seed {
+        use std::path::{Path, PathBuf};
+        use std::time::SystemTime;
+
+        /// Where the snapshot of the freshest cache is kept. Never opened by a tor client.
+        const SEED: &str = ".seed";
+        /// The sqlite files tor keeps. `-shm` is deliberately left out: sqlite
+        /// rebuilds it from the WAL, and a copied one could be stale.
+        const DB_FILES: [&str; 2] = ["dir.sqlite3", "dir.sqlite3-wal"];
+        /// Below this the cache holds no microdescriptors worth sharing.
+        const MIN_DB_BYTES: u64 = 1024 * 1024;
+
+        fn seed_dir(state: &Path) -> PathBuf {
+            state.join("attempts").join(SEED)
+        }
+
+        /// When the newest consensus in `cache` was stored, if `cache` also holds
+        /// enough microdescriptors to be worth copying.
+        fn usable_since(cache: &Path) -> Option<SystemTime> {
+            let db_bytes: u64 = DB_FILES
+                .iter()
+                .filter_map(|name| std::fs::metadata(cache.join(name)).ok())
+                .map(|meta| meta.len())
+                .sum();
+            if db_bytes < MIN_DB_BYTES {
+                return None;
+            }
+            std::fs::read_dir(cache.join("dir_blobs"))
+                .ok()?
+                .flatten()
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("con_microdesc"))
+                .filter_map(|entry| entry.metadata().and_then(|meta| meta.modified()).ok())
+                .max()
+        }
+
+        fn caches(state: &Path) -> Vec<PathBuf> {
+            let mut found = vec![state.join("cache")];
+            if let Ok(entries) = std::fs::read_dir(state.join("attempts")) {
+                for entry in entries.flatten() {
+                    // Skips the snapshot itself and any staging copy.
+                    if !entry.file_name().to_string_lossy().starts_with('.') {
+                        found.push(entry.path().join("cache"));
+                    }
+                }
+            }
+            found
+        }
+
+        fn private_dir(path: &Path) -> std::io::Result<()> {
+            std::fs::create_dir_all(path)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+            }
+            Ok(())
+        }
+
+        /// Copies the sqlite files and every blob `into` does not have yet.
+        fn copy_cache(from: &Path, into: &Path) -> std::io::Result<()> {
+            private_dir(into)?;
+            for name in DB_FILES.iter().chain(["dir.sqlite3-shm"].iter()) {
+                let _ = std::fs::remove_file(into.join(name));
+            }
+            for name in DB_FILES {
+                let source = from.join(name);
+                if source.is_file() {
+                    std::fs::copy(&source, into.join(name))?;
+                }
+            }
+            let blobs = from.join("dir_blobs");
+            if blobs.is_dir() {
+                let target = into.join("dir_blobs");
+                private_dir(&target)?;
+                for entry in std::fs::read_dir(&blobs)?.flatten() {
+                    let destination = target.join(entry.file_name());
+                    if entry.path().is_file() && !destination.exists() {
+                        std::fs::copy(entry.path(), &destination)?;
+                        // Keep the original store time: freshness is judged by it.
+                        if let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) {
+                            if let Ok(file) = std::fs::OpenOptions::new().write(true).open(&destination) {
+                                let _ = file.set_modified(modified);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        /// True while a tor client of this process may still have `cache` open.
+        fn in_use(cache: &Path) -> bool {
+            let lock = cache.join("dir.lock");
+            if !lock.exists() {
+                return false;
+            }
+            match std::fs::OpenOptions::new().read(true).write(true).open(&lock) {
+                Ok(file) => match file.try_lock() {
+                    Ok(()) => {
+                        let _ = file.unlock();
+                        false
+                    }
+                    Err(_) => true,
+                },
+                Err(_) => true,
+            }
+        }
+
+        /// Keeps a copy of the freshest cache. Called before any client exists.
+        pub(super) fn snapshot(state: &Path) {
+            let seed = seed_dir(state);
+            let best = caches(state)
+                .into_iter()
+                .filter(|cache| !in_use(cache))
+                .filter_map(|cache| usable_since(&cache).map(|when| (when, cache)))
+                .max_by_key(|(when, _)| *when);
+            let Some((when, source)) = best else {
+                return;
+            };
+            if usable_since(&seed).is_some_and(|held| held >= when) {
+                return;
+            }
+            let staging = state.join("attempts").join(".seed-new");
+            let _ = std::fs::remove_dir_all(&staging);
+            let outcome = copy_cache(&source, &staging).and_then(|()| {
+                let _ = std::fs::remove_dir_all(&seed);
+                std::fs::rename(&staging, &seed)
+            });
+            if let Err(e) = outcome {
+                let _ = std::fs::remove_dir_all(&staging);
+                log::warn!("[-] tor could not keep a copy of its directory cache: {e}");
+            }
+        }
+
+        /// Gives an attempt's cache the snapshot when it has nothing as fresh.
+        pub(super) fn into_slot(state: &Path, cache: &Path) {
+            let seed = seed_dir(state);
+            let Some(seeded) = usable_since(&seed) else {
+                return;
+            };
+            if usable_since(cache).is_some_and(|held| held >= seeded) || in_use(cache) {
+                return;
+            }
+            match copy_cache(&seed, cache) {
+                Ok(()) => log::info!("[*] tor starts this attempt from the directory it already has"),
+                Err(e) => {
+                    for name in DB_FILES {
+                        let _ = std::fs::remove_file(cache.join(name));
+                    }
+                    log::warn!("[-] tor could not share its directory cache with this attempt: {e}");
+                }
+            }
+        }
+    }
+
+    // <<< AETHER-APP-PATCH tor-cache-seed
     fn prepare_dir(path: &Path) -> Result<()> {
         std::fs::create_dir_all(path)?;
 

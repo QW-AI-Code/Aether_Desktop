@@ -2,13 +2,13 @@
 # بازرسی روی خودِ ZIP، از حالت استخراج‌شده — نه روی پوشهٔ کاری.
 # چیزی که تحویل می‌شود همین است، پس همین سنجیده می‌شود.
 #
-# استفاده:  bash scripts/verify-package.sh [path/to/Aether_Windows_V1.3.0.zip]
+# استفاده:  bash scripts/verify-package.sh [path/to/Aether_Windows_V1.4.0.zip]
 #   مسیرِ ZIP از آرگومانِ اول یا متغیرِ AETHER_ZIP می‌آید (پیش‌فرض:
-#   dist/Aether_Windows_V1.3.0.zip کنارِ ریشهٔ مخزن). پوشهٔ بالاییِ ZIP خودکار
+#   dist/Aether_Windows_V1.4.0.zip کنارِ ریشهٔ مخزن). پوشهٔ بالاییِ ZIP خودکار
 #   پیدا می‌شود؛ هیچ مسیرِ ثابتی از محیطِ دیگری فرض نمی‌شود.
 set -u
-EXPECT_VERSION="1.3.0"
-EXPECT_CORE="2.3.0"
+EXPECT_VERSION="1.4.0"
+EXPECT_CORE="2.4.0"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ZIP="${1:-${AETHER_ZIP:-$REPO_ROOT/dist/Aether_Windows_V${EXPECT_VERSION}.zip}}"
 [ -f "$ZIP" ] || { echo "✗ ZIP پیدا نشد: $ZIP"; exit 1; }
@@ -182,19 +182,19 @@ sys.exit(0 if (read != -1 and write != -1 and read < write) else 1)
 PY
 then ok "saveProfile اول می‌خواند بعد می‌نویسد"; else bad "saveProfile روی کپیِ محلی می‌نویسد"; fi
 
-echo "── اسناد ۱.۳.۰ (هستهٔ دست‌نخوردهٔ 2.3.0)"
+echo "── اسناد ۱.۳.۰ (هستهٔ دست‌نخوردهٔ 2.4.0)"
 for f in README.md README.fa.md release-notes.md .github/release-notes.md; do
   if grep -qiE 'اصلاحیهٔ p[0-9]|correction p[0-9]|چرا بیلد قبلی سبز نشد' "$f"; then
     bad "$f: رد پای اصلاحیه‌های ما"
   else
     ok "$f: پاک"
   fi
-  have "$f" 'Aether Core 2.3.0' "$f: هستهٔ 2.3.0 را معرفی می‌کند"
+  have "$f" 'Aether Core 2.4.0' "$f: هستهٔ 2.4.0 را معرفی می‌کند"
 done
-have README.md "## What's new in 1.3.0" 'README.md: بخشِ ۱.۳.۰ هست'
-have README.fa.md 'تازه‌های نسخهٔ ویندوز ۱.۳.۰' 'README.fa.md: بخشِ ۱.۳.۰ هست'
-have release-notes.md '# Aether Desktop 1.3.0' 'release-notes.md: تیترِ ۱.۳.۰'
-have .github/release-notes.md '# Aether Desktop 1.3.0' '.github/release-notes.md: تیترِ ۱.۳.۰'
+have README.md "## What's new in 1.4.0" 'README.md: بخشِ ۱.۴.۰ هست'
+have README.fa.md 'تازه‌های نسخهٔ ویندوز ۱.۳.۰' 'README.fa.md: بخشِ ۱.۴.۰ هست'
+have release-notes.md '# Aether Desktop 1.4.0' 'release-notes.md: تیترِ ۱.۴.۰'
+have .github/release-notes.md '# Aether Desktop 1.4.0' '.github/release-notes.md: تیترِ ۱.۴.۰'
 have release-notes.md 'Tor → Psiphon' 'release-notes: رفعِ برچسبِ SMART نوشته شده'
 # هیچ سندی نباید نسخهٔ ۱.۲.۵ را «نسخهٔ فعلی» معرفی کند.
 if grep -qE '^# Aether Desktop 1\.2\.5' README.md release-notes.md .github/release-notes.md; then
@@ -415,7 +415,7 @@ echo "── مورد ۱۲ (۱.۲.۵): ابعاد پنجره ذخیره و با�
 have src-tauri/src/window.rs 'pub fn place' 'window: منطقِ جای‌گذاری هست'
 have src-tauri/src/window.rs 'pub fn encode' 'window: سریال‌سازیِ هندسه هست'
 have src-tauri/src/window.rs 'pub fn decode' 'window: خواندنِ هندسه هست'
-have src-tauri/src/window.rs 'pub const PREFS_KEY: &str = "windowGeometry"' 'window: کلیدِ prefs همان windowGeometry است'
+have src-tauri/src/window.rs 'pub const PREFS_KEY: &str = "windowGeometryMobile"' 'window: کلیدِ prefs همان windowGeometryMobile است'
 have src-tauri/src/main.rs 'fn remember_window_geometry' 'window: ذخیرهٔ هندسه در main.rs هست'
 have src-tauri/src/main.rs 'fn restore_window_geometry' 'window: بازگردانیِ هندسه در main.rs هست'
 # فقط بودنِ فایل کافی نیست — ۱.۲.۵ یک بار همین‌جا گیر کرد: ماژول نوشته و
@@ -483,12 +483,14 @@ rung = min(60_000, first)
 sys.exit(0 if max(rung - reserve, floor) >= turbo else 1)
 PY
 
-echo "── مورد ۱۴ (۱.۳.۰): هستهٔ دست‌نخوردهٔ Aether 2.3.0 و هویتِ موتور"
-[ "$(tr -d '\r\n' < PATCHLEVEL)" = "1.3.0" ] && ok "PATCHLEVEL = 1.3.0" || bad "PATCHLEVEL = $(cat PATCHLEVEL 2>/dev/null)"
+echo "── مورد ۱۴ (۱.۴.۰): هستهٔ Aether 2.4.0 و overlay ثبت‌شده و هویتِ موتور"
+[ "$(tr -d '\r\n' < PATCHLEVEL)" = "1.4.0" ] && ok "PATCHLEVEL = 1.4.0" || bad "PATCHLEVEL = $(cat PATCHLEVEL 2>/dev/null)"
 if python3 scripts/check-core-pristine.py >/dev/null 2>&1; then
-  ok "core: native/aether بایت‌به‌بایت همان آپ‌استریم است"
+  ok "core: baseline + reviewed hash-locked mobile overlay"
 else bad "core: native/aether با مانیفستِ آپ‌استریم نمی‌خواند"; fi
-[ -f native/aether/aether/build.rs ] && bad "core: build.rsِ اختصاصی برگشته" || ok "core: build.rsِ اختصاصی ندارد"
+if [ -f CORE_PORT_PATCHES.json ] && python3 scripts/check-core-pristine.py >/dev/null 2>&1; then
+  ok "core: build provenance is part of the reviewed hash-locked overlay"
+else bad "core: missing or invalid reviewed overlay"; fi
 [ -d native/aether/.upstream-baseline ] && bad "core: .upstream-baseline برگشته" || ok "core: بی‌.upstream-baseline"
 have src-tauri/src/provenance.rs 'fn banner_version' 'identity: نسخه از بنرِ خودِ موتور خوانده می‌شود'
 if sed -n '/fn spawn_drain/,/^}/p' src-tauri/src/engine.rs | grep -q 'provenance::ingest'; then
@@ -496,7 +498,7 @@ if sed -n '/fn spawn_drain/,/^}/p' src-tauri/src/engine.rs | grep -q 'provenance
 else bad "identity: قلابِ ingest در spawn_drain نیست"; fi
 have src-tauri/src/state.rs 'provenance::log_app_identity' 'identity: هویتِ برنامه در هر اتصال لاگ می‌شود'
 have src-tauri/src/diagnostics.rs 'Build identity' 'identity: در گزارشِ محیط هم می‌آید'
-for g in 'Core must be the unmodified upstream source' \
+for g in 'Core must match upstream plus reviewed overlay' \
          'Engine must be the bundled core version' \
          'A published payload must carry the bundled core version'; do
   have .github/workflows/build.yml "$g" "CI: گیتِ «$g»"

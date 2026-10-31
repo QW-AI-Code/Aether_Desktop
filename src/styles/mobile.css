@@ -1,0 +1,461 @@
+/* =============================================================================
+   mobile.css — پوستهٔ موبایلِ Aether روی ویندوز (۱.۴.۰-mobile)
+   جایگزین desktop.css. پنجره یک قاب ۳۹۰×۸۲۰ است (حداقل ۳۶۰×۷۲۰)؛ طراحی
+   یک‌به‌یک از Theme.kt / SettingsUi.kt نسخهٔ اندروید ۱.۶.۰.
+   ========================================================================== */
+
+/* ---- نوار ۲۸ پیکسلی ویندوز (decorations: false) ------------------------- */
+.winbar {
+  height: var(--titlebar-height);           /* 28px */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  background: var(--navy-950);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.winbar__spacer { flex: 1; height: 100%; }
+.twin {
+  width: 40px;
+  height: var(--titlebar-height);
+  border: 0;
+  background: transparent;
+  color: var(--on-dark-muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 120ms ease, color 120ms ease;
+}
+.twin:hover { background: rgba(255, 255, 255, 0.08); color: var(--on-dark); }
+.twin--close:hover { background: #C42B1C; color: #fff; }
+/* نوار همیشه چپ‌به‌راست می‌ماند تا دکمهٔ بستن مثل ویندوز گوشهٔ راست باشد. */
+html[dir="rtl"] .winbar { direction: ltr; }
+
+/* ---- هدر موبایل (TopAppBar) -------------------------------------------- */
+.mobile-header {
+  height: var(--mobile-header-height);      /* 64px */
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 10px;
+  background: var(--navy-950);
+  border-bottom: 1px solid var(--navy-outline, rgba(255, 255, 255, 0.06));
+  position: relative;
+  z-index: 20;
+}
+.mobile-header__btn {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--on-dark);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.mobile-header__btn:hover { background: rgba(255, 255, 255, 0.07); }
+.mobile-header__btn.is-active { color: var(--accent, var(--aether-blue)); background: var(--navy-850); }
+.mobile-header__btn[hidden] { display: none; }
+.mobile-header__brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding-inline: 6px 4px;
+  line-height: 1.15;
+}
+.mobile-header__title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--on-dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mobile-header__tagline {
+  font-size: 11.5px;
+  color: var(--on-dark-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mobile-header__tagline[hidden] { display: none; }
+.mobile-header__spacer { flex: 1; }
+.mobile-header.is-sub .mobile-header__title { font-size: 17px; font-weight: 600; }
+/* در زیرصفحه‌ها میانبرِ همان صفحه بی‌معنی است. */
+body[data-tab="assistant"] #hdr-assistant,
+body[data-tab="tunnel"] #hdr-tune { display: none; }
+
+/* ---- کشوی ناوبری (ModalNavigationDrawer) -------------------------------- */
+.drawer__backdrop {
+  position: fixed;
+  inset: var(--titlebar-height) 0 0 0;
+  background: rgba(2, 6, 16, 0.6);
+  z-index: 1200;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.drawer__backdrop.is-open { opacity: 1; }
+.drawer__backdrop[hidden] { display: none; }
+.drawer {
+  position: fixed;
+  top: var(--titlebar-height);
+  bottom: 0;
+  inset-inline-start: 0;
+  width: var(--drawer-width);               /* min(86vw, 360px) */
+  max-width: 360px;
+  background: var(--navy-900);
+  border-inline-end: 1px solid var(--navy-outline, var(--navy-600));
+  border-start-end-radius: 24px;
+  border-end-end-radius: 24px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px 12px 20px;
+  overflow-y: auto;
+  transform: translateX(-104%);
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  visibility: hidden;
+}
+html[dir="rtl"] .drawer { transform: translateX(104%); }
+.drawer.is-open { transform: none; visibility: visible; }
+.drawer__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 14px 16px;
+}
+.drawer__title { font-size: 22px; font-weight: 700; color: var(--on-dark); }
+.drawer__tagline { font-size: 12.5px; color: var(--on-dark-muted); }
+.drawer__group { display: flex; flex-direction: column; gap: 2px; }
+.drawer__sep { height: 1px; margin: 10px 14px; background: var(--navy-outline, var(--navy-600)); }
+.drawer__item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--on-dark);
+  font: inherit;
+  font-size: 15px;
+  text-align: start;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.drawer__item:hover { background: rgba(255, 255, 255, 0.06); }
+.drawer__item.is-active { background: var(--navy-700, var(--navy-600)); color: var(--accent, var(--aether-blue)); }
+.drawer__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--on-dark-muted);
+  background: var(--navy-850);
+  flex: none;
+}
+.drawer__item.is-active .drawer__icon { color: inherit; background: rgba(255, 255, 255, 0.06); }
+.drawer__label { flex: 1; min-width: 0; }
+.drawer__chev { color: var(--on-dark-muted); display: grid; place-items: center; }
+html[dir="rtl"] .drawer__chev { transform: scaleX(-1); }
+body.drawer-open .main { overflow: hidden; }
+
+/* ---- محتوای اصلی: تک‌ستونی، تمام‌عرض ----------------------------------- */
+.main {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 14px 16px 28px;
+  display: flex;
+  justify-content: center;
+}
+#view, .view { max-width: var(--content-max); }   /* 100% */
+
+/* صفحهٔ خانه: عنوان بالای کارت تکراری است — هدر همان را می‌گوید. */
+.view--home .hero { display: none; }
+.view--home { gap: 10px; }
+.connect-wrap { margin: 6px 0 0; }
+
+/* زیرصفحهٔ تنظیمات: عنوانِ هاب در هدر است. */
+.setpage__title--hub { display: none; }
+
+/* ---- کارت‌های گروه تنظیمات (SettingsUi.kt: SettingsGroupCard) ---------- */
+.sethub__group {
+  margin: 14px 6px 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--on-dark-muted);
+}
+.sethub__card, .card, .scard, .about-card {
+  background: var(--navy-850);
+  border: 1px solid var(--navy-outline, var(--navy-600));
+  border-radius: var(--settings-card-radius, 22px);
+  overflow: hidden;
+}
+.sethub__card { padding: 0; }
+
+/* ---- ردیف تنظیمات (SettingsUi.kt: SettingsRow) ------------------------- */
+.setrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--settings-row-min-h, 60px);
+  padding: 8px 14px;
+  position: relative;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.setrow:hover { background: rgba(255, 255, 255, 0.04); }
+.setrow + .setrow::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  inset-inline-start: var(--settings-divider-inset, 60px);
+  inset-inline-end: 0;
+  height: 1px;
+  background: var(--navy-outline, var(--navy-600));
+}
+.setrow__icon {
+  width: var(--settings-icon-size, 34px);
+  height: var(--settings-icon-size, 34px);
+  border-radius: var(--settings-icon-radius, 11px);
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--navy-700, var(--navy-600));
+  color: var(--accent, var(--aether-blue));
+}
+.setrow__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.setrow__title { font-size: 15px; font-weight: 600; color: var(--on-dark); }
+.setrow__sub {
+  font-size: 12.5px;
+  color: var(--on-dark-muted);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.setrow__value { font-size: 12.5px; color: var(--on-dark-muted); max-width: 34%; text-align: end; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.setrow__chev { color: var(--on-dark-muted); display: grid; place-items: center; }
+html[dir="rtl"] .setrow__chev { transform: scaleX(-1); }
+.setrow--danger .setrow__icon { color: #FF5C7A; }
+.setpage__head { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+
+/* ---- راست‌به‌چپ — چیدمان آینه‌ای، مقادیر فنی همیشه LTR ------------------ */
+html[dir="rtl"] .kv dt { text-align: start; }
+html[dir="rtl"] .kv dd { text-align: end; }
+
+/* هر چیزی که آدرس، پورت، نسخه یا لاگ است باید چپ‌به‌راست بماند — معادل LtrInput.kt */
+.ltr {
+  direction: ltr;
+  unicode-bidi: plaintext;
+  text-align: left;
+}
+html[dir="rtl"] .rtl, .rtl { direction: rtl; unicode-bidi: plaintext; text-align: right; }
+
+/* پنجرهٔ حداقلی ۳۶۰×۷۲۰ — کارت اتصال باید کامل جا شود. */
+@media (max-height: 760px) {
+  .main { padding-top: 8px; padding-bottom: 16px; }
+  :root { --connect-button: 118px; }
+  .ccard__body { gap: 6px; padding: 10px 14px; }
+  .ccard__title { font-size: 23px; line-height: 27px; }
+  .ccard__caption { margin-top: 2px; min-height: 16px; }
+  .ccard__timer-v { font-size: 28px; }
+}
+@media (max-width: 374px) {
+  .main { padding-inline: 12px; }
+  .mobile-header__title { font-size: 17px; }
+}
+
+/* تمرکز کیبوردی. */
+:focus-visible {
+  outline: 2px solid var(--aether-blue);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* کاربرانی که انیمیشن کمتر می‌خواهند. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  /* نشانگرهای وضعیت اتصال بازخورد هستند نه تزئین — روشن می‌مانند (WCAG). */
+  .connect.is-busy .connect__arc { animation: arc-spin 1100ms linear infinite !important; }
+  .connect.is-busy .connect__icon { animation: icon-spin 1400ms linear infinite !important; }
+  .connect__halo.is-on { animation: halo-pulse 1600ms ease-in-out infinite !important; }
+}
+
+.cc-qr-input[hidden]{display:none}.cc-qr{min-height:36px}
+
+/* =============================================================================
+   ۱.۴.۰-ui — تطبیق با نسخهٔ موبایل ۱.۶.۰ (گذر نهایی)
+   ========================================================================== */
+
+/* ---- ۱) کشو: در RTL قاعدهٔ بسته‌بودن (اختصاصیت بالاتر) حالت باز را می‌بلعید -- */
+html[dir="rtl"] .drawer.is-open,
+html[dir="ltr"] .drawer.is-open { transform: none; visibility: visible; }
+.drawer { width: min(86%, 360px); max-width: 360px; z-index: 1300; }
+.drawer__backdrop { z-index: 1200; }
+.drawer__head { flex-direction: row; align-items: center; gap: 12px; padding: 6px 14px 16px; }
+.drawer__logo { width: 44px; height: 44px; border-radius: 12px; flex: none; object-fit: contain; }
+.drawer__brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.drawer__item { min-height: 60px; padding-block: 8px; border-radius: 20px; }
+.drawer__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.drawer__label { flex: none; font-size: 15px; font-weight: 600; }
+.drawer__sub { font-size: 11.5px; line-height: 1.45; color: var(--on-dark-muted); font-weight: 400; white-space: normal; overflow-wrap: anywhere; }
+.drawer__sub:empty { display: none; }
+.drawer__item.is-active .drawer__sub { color: var(--on-dark-muted); }
+
+/* ---- ۲) هدر خانه: برند و شعار دقیقاً وسط‌چین ------------------------------- */
+.mobile-header:not(.is-sub) .mobile-header__brand {
+  position: absolute;
+  inset-block: 0;
+  inset-inline: 104px;
+  align-items: center;
+  text-align: center;
+  pointer-events: none;
+  padding: 0;
+}
+.mobile-header:not(.is-sub) .mobile-header__title,
+.mobile-header:not(.is-sub) .mobile-header__tagline { max-width: 100%; text-align: center; }
+
+/* ---- ۳) دکمهٔ اتصال: مرکز شفاف، نشان مستقیم روی پس‌زمینه --------------------- */
+.connect .connect__core {
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 30%, transparent), transparent 70%);
+  border: 0;
+  box-shadow: none;
+}
+.connect:not(.is-on) .connect__core { opacity: 0; }
+
+/* ---- ۴) نشان WebRTC از صفحهٔ اصلی حذف شده (مثل موبایل) ----------------------- */
+.view--home .shield, #shield { display: none !important; }
+
+/* ---- ۷) دکمه‌های نوار ۲۸ پیکسلی: کنتراست بیشتر ------------------------------ */
+.twin { color: #E6EBF5; }
+.twin svg { opacity: 1; width: 14px; height: 14px; }
+.twin:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.twin--close:hover { background: #E81123; color: #fff; }
+.twin--close:active { background: #F1707A; }
+
+/* ---- ۴) حالت GOOL: کارت‌های رادیویی تمام‌عرض، بدون بریدگی متن ------------------ */
+.seg--grid.seg--cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.seg--grid.seg--cards .seg__item {
+  width: 100%;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 12px 16px;
+  border-radius: 16px;
+  white-space: normal;
+  text-align: start;
+}
+.seg--grid.seg--cards .seg__text {
+  flex: 1 1 auto;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.seg--grid.seg--cards .seg__check { margin-inline-start: 12px; }
+.field--tiles .note, .field--tiles .field__note { overflow-wrap: anywhere; white-space: normal; }
+
+/* ---- ۵) کانفیگ‌های سفارشی ------------------------------------------------- */
+.btn--success {
+  background: #2FBF71;
+  border: 0;
+  color: #06210F;
+  font-weight: 700;
+}
+.btn--success:hover { filter: brightness(1.08); }
+.btn--success:active { filter: brightness(0.94); }
+.cc-add-group { display: flex; }
+.cc-add {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+}
+.cc-import-pane[hidden] { display: none; }
+.chat__modalcard .cc-import-pane { max-height: 70vh; overflow-y: auto; }
+.chat__modalcard .cc-import-pane .sethub__group { display: none; }
+.chat__modalcard .cc-import-pane .scard { background: transparent; border: 0; box-shadow: none; padding: 0; }
+
+.cc-health-card { display: flex; align-items: center; gap: 12px; }
+.cc-health__icon {
+  width: 38px; height: 38px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 12px;
+  color: var(--aether-blue);
+  background: var(--navy-850);
+}
+.cc-health__label { flex: 1; min-width: 0; }
+.cc-health__chip {
+  position: relative;
+  flex: none;
+  min-width: 78px;
+  height: 34px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--aether-blue) 18%, transparent);
+  border: 1px solid color-mix(in srgb, var(--aether-blue) 55%, transparent);
+  color: var(--on-dark);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cc-health__chip select {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; cursor: pointer; border: 0;
+}
+
+/* نوار تب‌ها: «+ تب جدید» و تب‌ها با مداد ویرایش، مثل موبایل */
+.cc-tabs-bar { display: flex; flex-direction: column; gap: 6px; }
+.cc-tabs-actions { order: 2; }
+.cc-tabs { order: 1; display: flex; gap: 8px; overflow-x: auto; padding: 6px 0; }
+.cc-new-tab {
+  border-radius: 999px;
+  min-height: 36px;
+  padding-inline: 14px 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px dashed color-mix(in srgb, var(--aether-blue) 60%, transparent);
+  background: transparent;
+  color: var(--aether-blue);
+}
+.cc-tab { border-radius: 999px; overflow: visible; }
+.cc-tab__pick { border-radius: 999px 0 0 999px; }
+html[dir="rtl"] .cc-tab__pick { border-radius: 0 999px 999px 0; }
+.cc-tab-edit__btn { border-radius: 0 999px 999px 0; }
+html[dir="rtl"] .cc-tab-edit__btn { border-radius: 999px 0 0 999px; }
+.cc-tab .cc-tab__pick[aria-selected="true"] { background: var(--navy-750); color: var(--aether-blue); }
+.cc-health__chip-text { pointer-events: none; white-space: nowrap; }
+.cc-import-group { display: flex; flex-direction: column; gap: 8px; }

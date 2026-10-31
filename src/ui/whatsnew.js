@@ -16,6 +16,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { announcementFor } from '../news/announcements.js'
+import { openSupportDialog, supportSuppressed } from './support.js'
 
 const LS_LAST = 'aether.news.lastLaunched'
 const LS_SUPPRESSED = 'aether.news.suppressed'
@@ -69,7 +70,11 @@ export async function maybeShowWhatsNew() {
   openWhatsNew({
     announcement: announcementFor(version),
     showDontShowAgain: true,
-    onClose: (dontShowAgain) => mark(version, dontShowAgain),
+    onClose: (dontShowAgain) => {
+      mark(version, dontShowAgain)
+      // یادداشت حمایت از سازندهٔ هسته، بلافاصله پس از بستن «تازه‌ها».
+      if (!supportSuppressed()) openSupportDialog({ showDontShowAgain: true })
+    },
   })
   return true
 }

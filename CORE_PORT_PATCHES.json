@@ -1,0 +1,276 @@
+{
+  "core_version": "2.4.0",
+  "source_mobile": "1.6.0",
+  "records": [
+    {
+      "path": "aether/Cargo.lock",
+      "upstream_sha256": "8d7fc77f956d306d9b9c7a95b3397110076824e8a35b412f6fe36b52a7a96275",
+      "mobile_sha256": "9b2d1cc0038d279735a56e2ce91d1131f26682fa75202d31b66921f8a162c173",
+      "ported_sha256": "9b2d1cc0038d279735a56e2ce91d1131f26682fa75202d31b66921f8a162c173"
+    },
+    {
+      "path": "aether/Cargo.toml",
+      "upstream_sha256": "216fb0c9a1399198a738d3b2c508656d3e6fdb96796217aa2f2d62f6470369ff",
+      "mobile_sha256": "09bc6bb8d4abec658da374cea6d04af9d8a71a5f8f2f29d442fc6a04dbe4c13a",
+      "ported_sha256": "09bc6bb8d4abec658da374cea6d04af9d8a71a5f8f2f29d442fc6a04dbe4c13a"
+    },
+    {
+      "path": "aether/build.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "4b9958c94cff36078cdd2996cbaa7c44e392b6dfb42b14524cb668f7f5e6c2d1",
+      "ported_sha256": "4b9958c94cff36078cdd2996cbaa7c44e392b6dfb42b14524cb668f7f5e6c2d1"
+    },
+    {
+      "path": "aether/src/lib.rs",
+      "upstream_sha256": "f32943f536b02dc37de20d8c3e0e387de3792f1a8c485a1a12d1016a772c3baf",
+      "mobile_sha256": "f64dd8a05efab5e1eb9183c96f2057e8f74bef66e3e0f2670d681e4d1f425fa4",
+      "ported_sha256": "a8d8c33bc3ffe273701db08b575d3bf7d5cb7e57f7ae799f43e094416bdf4f44"
+    },
+    {
+      "path": "aether/src/masque_h2.rs",
+      "upstream_sha256": "0f64b75a7dab2e8733743dc268da81d17b4170a62b4f0dc6faa3d13fc01bde25",
+      "mobile_sha256": "d604fa79b872e7e31b9436f0d0d437c79374c505a458e2ec172c2fd7296df6b3",
+      "ported_sha256": "daa934247a3bfc90d7376d6e9a5a70614601a7351b62d2fc96e110b511ef98ad"
+    },
+    {
+      "path": "aether/src/netstack.rs",
+      "upstream_sha256": "9ad35b9d08d43a0d2662e2e62b85b555cde55e80a66de35697b9ec16097112f5",
+      "mobile_sha256": "3002ab8e5f95aa46f21c665344d316f71aed53b61790a86f280ce614d9a76573",
+      "ported_sha256": "3002ab8e5f95aa46f21c665344d316f71aed53b61790a86f280ce614d9a76573"
+    },
+    {
+      "path": "aether/src/prober.rs",
+      "upstream_sha256": "80c5d087d2927b1406b2ffdd0a53f175fbfc4469de4ae1b41759af40229838ff",
+      "mobile_sha256": "130cb9d97be98564e321b060c0b829c348971830ccb5d119df101b45907bda63",
+      "ported_sha256": "130cb9d97be98564e321b060c0b829c348971830ccb5d119df101b45907bda63"
+    },
+    {
+      "path": "aether/src/psiphon.rs",
+      "upstream_sha256": "4f9b245fb78bd3ba8eeeab43642f59b9932545cf75b919bea4049862c334eaf7",
+      "mobile_sha256": "88d6f10e70019e895251856f7d803f4d997de6431274a7b2b368c6f156b46484",
+      "ported_sha256": "88d6f10e70019e895251856f7d803f4d997de6431274a7b2b368c6f156b46484"
+    },
+    {
+      "path": "aether/src/quic.rs",
+      "upstream_sha256": "91494bbbfcbbf834f65b16eece9fa7fbf186b4ed07ec508c2512bebb519c2be1",
+      "mobile_sha256": "0bb8d77ebee67cc34a85cb2d8a9f3c3ff9d1b4f487c48532a19ca54956ca28fd",
+      "ported_sha256": "0bb8d77ebee67cc34a85cb2d8a9f3c3ff9d1b4f487c48532a19ca54956ca28fd"
+    },
+    {
+      "path": "aether/src/routing.rs",
+      "upstream_sha256": "75a4e8241d183dbf7d73ca8ef8e67aab0b9d1b4cf8222be31161139dc6ce661e",
+      "mobile_sha256": "16d58408abbbfa0405305ec43d767bc3aa64b00c251b577c3697453790df5055",
+      "ported_sha256": "16d58408abbbfa0405305ec43d767bc3aa64b00c251b577c3697453790df5055"
+    },
+    {
+      "path": "aether/src/socket_tuning.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": null,
+      "ported_sha256": "ac6182575b31f2a36e099f11e8717c031c0cad110097d81dcb37608207b5b74a"
+    },
+    {
+      "path": "aether/src/socks.rs",
+      "upstream_sha256": "96848b9bc0f6cb2547d15697d98fbf2287a6ecaa2b8c59cf7465d9e32c4f8711",
+      "mobile_sha256": "2f9627732153acf7afd8d8a81df9a3d282b5a0937672fe8367fd8c8d8e5bfe62",
+      "ported_sha256": "2f9627732153acf7afd8d8a81df9a3d282b5a0937672fe8367fd8c8d8e5bfe62"
+    },
+    {
+      "path": "aether/src/sysprofile.rs",
+      "upstream_sha256": "d18b1e7d2a23a04ee16e887d22d0c6213f8e5c4cf544b5ac2a71ff4fdaf51a0a",
+      "mobile_sha256": "0499f08a2b88806f233c132f4c2ccc3a145f63561ca6fca20c8c93390b9fa64b",
+      "ported_sha256": "0499f08a2b88806f233c132f4c2ccc3a145f63561ca6fca20c8c93390b9fa64b"
+    },
+    {
+      "path": "aether/src/tor.rs",
+      "upstream_sha256": "4c70ad4a1e59006b217d6a0b21090dada78e6506ce4f573f704029f96b827a28",
+      "mobile_sha256": "1e42b3bd16e73587fc1f5a2f94f1b970578d1de69ac094d719fdc55516dd1109",
+      "ported_sha256": "1e42b3bd16e73587fc1f5a2f94f1b970578d1de69ac094d719fdc55516dd1109"
+    },
+    {
+      "path": "aether/src/upstream.rs",
+      "upstream_sha256": "3f3c1fa03f1c25e5f4148baa67da2766f2873d90550db87f604020754865165e",
+      "mobile_sha256": "98c9cc3a2abb03074dade4e6e4d955638a3e3965bb19e189360d07495603e4ea",
+      "ported_sha256": "3309166903a6b7a55264d03c323dfe29ef742a3bb492f4ef8d36f205e776e13c"
+    },
+    {
+      "path": "aether/src/wg_prober.rs",
+      "upstream_sha256": "2819ae173b2b8f894b88f88ffc5ef62f2a5f44c5efec646739fbadd6ae47334b",
+      "mobile_sha256": "038ddec7691230ddf39c0416c8987caeae0f034597926efe1d0e00a59f0ffaca",
+      "ported_sha256": "038ddec7691230ddf39c0416c8987caeae0f034597926efe1d0e00a59f0ffaca"
+    },
+    {
+      "path": "aether/src/wireguard.rs",
+      "upstream_sha256": "5774299d2d0a304b9c88a99f42eda03666af7d4fddcf7ddb8174228b8f90b2d1",
+      "mobile_sha256": "aca4e3fb60210f6be0a58cb56b9902a4afd54a534ac5bc7f8f59d49b77f2c79e",
+      "ported_sha256": "aca4e3fb60210f6be0a58cb56b9902a4afd54a534ac5bc7f8f59d49b77f2c79e"
+    },
+    {
+      "path": "vendor/tor-chanmgr/Cargo.toml",
+      "upstream_sha256": null,
+      "mobile_sha256": "4ac0821e2d52ad91f398b5ee66cf0c01f82f2b9898fa39cf6996e514e2a22d3c",
+      "ported_sha256": "4ac0821e2d52ad91f398b5ee66cf0c01f82f2b9898fa39cf6996e514e2a22d3c"
+    },
+    {
+      "path": "vendor/tor-chanmgr/LICENSE-APACHE",
+      "upstream_sha256": null,
+      "mobile_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "ported_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "vendor/tor-chanmgr/LICENSE-MIT",
+      "upstream_sha256": null,
+      "mobile_sha256": "e40081d18f17b6783fcb554ae42f6fa3548988e4d705a3e4541e2ef240293040",
+      "ported_sha256": "e40081d18f17b6783fcb554ae42f6fa3548988e4d705a3e4541e2ef240293040"
+    },
+    {
+      "path": "vendor/tor-chanmgr/README.md",
+      "upstream_sha256": null,
+      "mobile_sha256": "a1c2f5c1bc4de8ce2c145567e75f7a0f4cb2fe834c329d617eca1999d480e42b",
+      "ported_sha256": "a1c2f5c1bc4de8ce2c145567e75f7a0f4cb2fe834c329d617eca1999d480e42b"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/builder.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "39b0e46308802ea52072b6ddc9489bf24e8ed5eb463f7e591c59ef7e94120791",
+      "ported_sha256": "39b0e46308802ea52072b6ddc9489bf24e8ed5eb463f7e591c59ef7e94120791"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/config.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "729ee3507d93f409905d217536684881e1244ce19b00693e4b3c397a5d6278eb",
+      "ported_sha256": "729ee3507d93f409905d217536684881e1244ce19b00693e4b3c397a5d6278eb"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/err.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "de342fdd8473be41561b273e88949806368fd972f13a1bc86a6bcd57dff08e67",
+      "ported_sha256": "de342fdd8473be41561b273e88949806368fd972f13a1bc86a6bcd57dff08e67"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/event.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "3ed4f4fef36a335c3a9f50d67824e8842f76077a243fcd56e71e2b2b87878703",
+      "ported_sha256": "3ed4f4fef36a335c3a9f50d67824e8842f76077a243fcd56e71e2b2b87878703"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/factory.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "f75296bd21a63bd1bd28005289c23004d6e0ec553e5ba6dcd8d086c14ae51d68",
+      "ported_sha256": "f75296bd21a63bd1bd28005289c23004d6e0ec553e5ba6dcd8d086c14ae51d68"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/lib.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "34752d3c8a620402cee5ac32b61f31a2381e45b97712ddcedea75820c490bb25",
+      "ported_sha256": "34752d3c8a620402cee5ac32b61f31a2381e45b97712ddcedea75820c490bb25"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/mgr.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "a217ee79eb2ec101a211dcd0ba4c66c4d68199b17a6b0aa2d3a007a9dcb164e5",
+      "ported_sha256": "a217ee79eb2ec101a211dcd0ba4c66c4d68199b17a6b0aa2d3a007a9dcb164e5"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/mgr/select.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "9594053deebf5dcca1df4a2e8dde55b49ff6583f6c6c9d3f34ed243dfbca6084",
+      "ported_sha256": "9594053deebf5dcca1df4a2e8dde55b49ff6583f6c6c9d3f34ed243dfbca6084"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/mgr/state.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "887160bd3440e6b162d7a66813d301091386d518beb9f7ecd17a82f7d4590767",
+      "ported_sha256": "887160bd3440e6b162d7a66813d301091386d518beb9f7ecd17a82f7d4590767"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/mgr/state/padding_test.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "144c414467fdd087c34a51d1984e2041ca890c1fbec350320a7586552830c373",
+      "ported_sha256": "144c414467fdd087c34a51d1984e2041ca890c1fbec350320a7586552830c373"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/testing.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "ff40011bd92335282c3a70249681695bcbdb0ab6c91ea2f3cc6e95b5fb6ee45f",
+      "ported_sha256": "ff40011bd92335282c3a70249681695bcbdb0ab6c91ea2f3cc6e95b5fb6ee45f"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/transport.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "b56f1ddadc1c3aceec21fb07b4b75b322fd3e79d7bbb2326e6832603d10de31f",
+      "ported_sha256": "b56f1ddadc1c3aceec21fb07b4b75b322fd3e79d7bbb2326e6832603d10de31f"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/transport/default.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "26be518bc7167b7c76dd5035c6ff0c5697fbbbada7b2203388b28a8916cb3f3c",
+      "ported_sha256": "26be518bc7167b7c76dd5035c6ff0c5697fbbbada7b2203388b28a8916cb3f3c"
+    },
+    {
+      "path": "vendor/tor-chanmgr/src/transport/proxied.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "d0a9db97d185bb134f6c09bcc1098e35a442afdcac33a9843d6aa2e3e5d85372",
+      "ported_sha256": "d0a9db97d185bb134f6c09bcc1098e35a442afdcac33a9843d6aa2e3e5d85372"
+    },
+    {
+      "path": "vendor/tor-dirclient/Cargo.toml",
+      "upstream_sha256": null,
+      "mobile_sha256": "e840269aed112b54835b2d60e5aa1d4d4e1818dced447d0b5a35ce0e5e3fee18",
+      "ported_sha256": "e840269aed112b54835b2d60e5aa1d4d4e1818dced447d0b5a35ce0e5e3fee18"
+    },
+    {
+      "path": "vendor/tor-dirclient/LICENSE-APACHE",
+      "upstream_sha256": null,
+      "mobile_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "ported_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "vendor/tor-dirclient/LICENSE-MIT",
+      "upstream_sha256": null,
+      "mobile_sha256": "e40081d18f17b6783fcb554ae42f6fa3548988e4d705a3e4541e2ef240293040",
+      "ported_sha256": "e40081d18f17b6783fcb554ae42f6fa3548988e4d705a3e4541e2ef240293040"
+    },
+    {
+      "path": "vendor/tor-dirclient/README.md",
+      "upstream_sha256": null,
+      "mobile_sha256": "53621a4c9038beceed2ddaab13278e8fa72165834fa6a59644f0c8a284793732",
+      "ported_sha256": "53621a4c9038beceed2ddaab13278e8fa72165834fa6a59644f0c8a284793732"
+    },
+    {
+      "path": "vendor/tor-dirclient/src/body.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "02ac98ca377e2962b32f9e4ee1987ca0557f2019d2d1bd7e00b696af9c4b453c",
+      "ported_sha256": "02ac98ca377e2962b32f9e4ee1987ca0557f2019d2d1bd7e00b696af9c4b453c"
+    },
+    {
+      "path": "vendor/tor-dirclient/src/err.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "8ba14b2bbd68d862e902889a40b99e4508d5d8d86792ef5236b970762e112011",
+      "ported_sha256": "8ba14b2bbd68d862e902889a40b99e4508d5d8d86792ef5236b970762e112011"
+    },
+    {
+      "path": "vendor/tor-dirclient/src/lib.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "4d8e858d854b1ba0874e85e8ee1fa54b00b8c95b9af910da38b53219aa69f801",
+      "ported_sha256": "4d8e858d854b1ba0874e85e8ee1fa54b00b8c95b9af910da38b53219aa69f801"
+    },
+    {
+      "path": "vendor/tor-dirclient/src/request.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "5bad7c3c7868cfbaa55c733861ecb9d47707d883b3674da28a8283bc44d53b9f",
+      "ported_sha256": "5bad7c3c7868cfbaa55c733861ecb9d47707d883b3674da28a8283bc44d53b9f"
+    },
+    {
+      "path": "vendor/tor-dirclient/src/response.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "ed700ef965499db9d96071fe07f47298f70dec19703fecce78cd05314edd8dba",
+      "ported_sha256": "ed700ef965499db9d96071fe07f47298f70dec19703fecce78cd05314edd8dba"
+    },
+    {
+      "path": "vendor/tor-dirclient/src/util.rs",
+      "upstream_sha256": null,
+      "mobile_sha256": "a8ffa8a0ee6744d120b569af9863cdcbbdf0691412a163df15975201b583c570",
+      "ported_sha256": "a8ffa8a0ee6744d120b569af9863cdcbbdf0691412a163df15975201b583c570"
+    }
+  ]
+}

@@ -48,8 +48,8 @@ window.__TAURI_INTERNALS__ = {
       })
     }
     if (cmd === 'cc_import_path') return Promise.resolve(add(args.path.split(/[\\/]/).pop()))
-    if (cmd === 'cc_import_file') {
-      if (args.text.trim() !== LINK) return Promise.reject({ kind: 'invalid', message: 'bad content' })
+    if (cmd === 'cc_import_bytes') {
+      if (new TextDecoder().decode(new Uint8Array(args.bytes)).trim() !== LINK) return Promise.reject({ kind: 'invalid', message: 'bad content' })
       return Promise.resolve(add(args.name))
     }
     return Promise.resolve(null)
@@ -58,7 +58,7 @@ window.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } },
 }
 
-await import('../src/main.js')
+await import('../src/main.js').then(async m => { await m.bootReady; return m })
 const cc = await import('../src/views/customconfigs.js')
 const { setLang, t } = await import('../src/i18n.js')
 
@@ -74,13 +74,13 @@ const calls = (cmd) => invoked.filter(([c]) => c === cmd)
 const root = cc.renderCustomConfigs()
 document.getElementById('view').appendChild(root)
 await tick()
-const zone = root.querySelector('.cc-drop')
-const title = () => root.querySelector('.cc-list-title').textContent
+const zone = (root.classList.contains('view--custom') ? root : root.querySelector('.view--custom'))
+const configCount = () => root.querySelectorAll('.ccfg').length
 
 for (const ev of ['tauri://drag-enter', 'tauri://drag-over', 'tauri://drag-drop', 'tauri://drag-leave', 'aether://file-drop']) {
   check(listeners.has(ev), `به ${ev} گوش داده می‌شود`)
 }
-check(!!zone && title().endsWith('(0)'), 'فهرست خالی است')
+check(!!zone && configCount() === 0, 'فهرست خالی است')
 
 // --- ۱) رویدادِ بومیِ تائوری
 fire('tauri://drag-enter', { paths: ['C:\\cfg\\a.npvt'], position: { x: 1, y: 1 } })
@@ -92,14 +92,14 @@ fire('tauri://drag-drop', { paths: ['C:\\cfg\\a.npvt'], position: { x: 3, y: 3 }
 await tick()
 check(!zone.classList.contains('is-over'), 'پس از drop کادر خاموش است')
 check(calls('cc_import_path').length === 1 && calls('cc_import_path')[0][1].path === 'C:\\cfg\\a.npvt', 'tauri://drag-drop → cc_import_path با همان مسیر')
-check(title().endsWith('(1)') && root.querySelectorAll('.ccfg').length === 1, 'کانفیگِ رهاشده در فهرست است')
+check(configCount() === 1 && root.querySelectorAll('.ccfg').length === 1, 'کانفیگِ رهاشده در فهرست است')
 
 // --- ۲) مسیرِ برنامهٔ ارتقایافته (WM_DROPFILES در filedrop.rs)
 fire('aether://file-drop', ['D:\\x\\b.json', 'D:\\x\\c.conf'])
 await tick()
 const paths = calls('cc_import_path').map(([, a]) => a.path)
 check(paths.includes('D:\\x\\b.json') && paths.includes('D:\\x\\c.conf'), 'aether://file-drop هر دو فایل را وارد می‌کند')
-check(title().endsWith('(3)'), 'سه کانفیگ در فهرست')
+check(configCount() === 3, 'سه کانفیگ در فهرست')
 // همان رها کردن اگر از دو مسیر برسد، یک بار وارد می‌شود.
 fire('tauri://drag-drop', { paths: ['D:\\x\\b.json'] })
 await tick()
@@ -118,22 +118,38 @@ drop.dataTransfer = dt
 zone.dispatchEvent(drop)
 check(drop.defaultPrevented, 'drop پیش‌فرضِ WebView (باز کردنِ فایل) را می‌گیرد')
 await tick(60)
-const f = calls('cc_import_file')
-check(f.length === 1 && f[0][1].name === 'free.txt' && f[0][1].text.trim() === LINK, 'محتوای فایل خوانده و با cc_import_file فرستاده شد')
-check(title().endsWith('(4)'), 'کانفیگِ فایلِ HTML5 در فهرست است')
+const f = calls('cc_import_bytes')
+check(f.length === 1 && f[0][1].name === 'free.txt' && new TextDecoder().decode(new Uint8Array(f[0][1].bytes)).trim() === LINK, 'محتوای فایل خوانده و با cc_import_bytes فرستاده شد')
+check(configCount() === 4, 'کانفیگِ فایلِ HTML5 در فهرست است')
+
+// فایلِ باینریِ NPVS (بایت‌های ≥ 0x80) باید بی‌هیچ تبدیلِ متنی به Rust برسد.
+{
+  const raw = new Uint8Array(1106)
+  raw.set([0x4e, 0x50, 0x56, 0x53, 5, 0, 0, 0, 0x87], 0)
+  for (let i = 9; i < raw.length; i++) raw[i] = (i * 37 + 0x80) & 0xff
+  const bin = new window.File([raw], 'config.npvs', { type: 'application/octet-stream' })
+  const btDrop = new window.Event('drop', { bubbles: true, cancelable: true })
+  btDrop.dataTransfer = { types: ['Files'], files: [bin], dropEffect: 'none' }
+  zone.dispatchEvent(btDrop)
+  await tick(60)
+  const sent = calls('cc_import_bytes').find(([, a]) => a.name === 'config.npvs')
+  check(!!sent && sent[1].bytes.length === raw.length && sent[1].bytes.every((b, i) => b === raw[i]),
+    'فایل .npvs به‌صورت بایتِ خام (بدون تبدیل UTF-8) با cc_import_bytes ارسال می‌شود')
+  check(!calls('cc_import_file').length, 'مسیر متنیِ cc_import_file برای NPVS استفاده نمی‌شود')
+}
 
 // کشیدنِ متن (نه فایل) به textarea دست نمی‌خورد.
 const textOver = new window.Event('dragover', { bubbles: true, cancelable: true })
 textOver.dataTransfer = { types: ['text/plain'], files: [] }
-root.querySelector('.cc-paste').dispatchEvent(textOver)
+;(root.querySelector('.cc-paste') ?? document.body).dispatchEvent(textOver)
 check(!textOver.defaultPrevented, 'کشیدنِ متن به textarea رفتارِ عادی دارد')
 
 // --- دکمهٔ «تست همه»
 setLang('fa')
-check(t('Test all') === 'تست پینگ همه کانفیگ‌ها', 'ترجمهٔ فارسیِ Test all')
+check(t('Test all') === 'پینگ همه', 'ترجمهٔ فارسیِ Test all')
 document.getElementById('view').replaceChildren(cc.renderCustomConfigs())
 await tick()
-check(document.querySelector('.cc-ping-all')?.textContent === 'تست پینگ همه کانفیگ‌ها', 'دکمه در رابطِ فارسی «تست پینگ همه کانفیگ‌ها» است')
+check(document.querySelector('.cc-ping-all__title')?.textContent === 'پینگ همه', 'دکمه در رابطِ فارسی «پینگ همه» است')
 
 // --- بیرون از صفحه، رها کردن کاری نمی‌کند
 document.getElementById('view').replaceChildren()

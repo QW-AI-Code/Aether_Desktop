@@ -26,6 +26,11 @@ import { invoke } from '@tauri-apps/api/core'
 import { renderCustomConfigs, customConfigsValue, refreshCustomConfigs } from './customconfigs.js'
 // AETHER-APP-PATCH whats-new
 import { renderAnnouncements, MEGAPHONE } from './announcements.js'
+import { renderCleanIpSettings } from './cleanip.js'
+import {
+  homeAnimationsEnabled, setHomeAnimationsEnabled,
+  connectionSoundsEnabled, setConnectionSoundsEnabled,
+} from '../ui/feedback.js'
 
 const CHEVRON =
   '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>'
@@ -58,7 +63,7 @@ const VALUE_LABEL = {
   INCLUDE: 'Only these apps', EXCLUDE: 'All except these',
 }
 
-const label = (raw) => (raw ? t(VALUE_LABEL[raw] ?? raw) : '')
+const label = (raw) => (raw ? (['AETHER', 'TOR'].includes(raw) ? VALUE_LABEL[raw] : t(VALUE_LABEL[raw] ?? raw)) : '')
 
 /**
  * گروه‌ها و ردیف‌ها — آینهٔ `ai_topic.rs::Group` تا توضیحی که دستیار می‌دهد و
@@ -67,6 +72,10 @@ const label = (raw) => (raw ? t(VALUE_LABEL[raw] ?? raw) : '')
  * `sections` نام قطعه‌هایی است که زیرصفحه از advanced.js می‌گیرد. `value` تابع
  * است، نه رشته: هاب کَش می‌شود و مقدارِ خوانده‌شده در زمان ساخت یخ می‌زد.
  */
+const CLOUD = '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17 8.5a4.75 4.75 0 0 1 .5 9.5z"/></svg>'
+
+// ۱.۴.۰-mobile: ترتیب گروه‌ها مطابق SettingsMenuScreen.kt نسخهٔ موبایل:
+// Tunnel → Custom configs → Connection safety → Application
 const GROUPS = [
   {
     title: 'Tunnel',
@@ -95,6 +104,12 @@ const GROUPS = [
         subtitle: 'Dial out through a proxy already running on this PC',
         value: (p) => ((p.upstream || '').trim() ? t('On') : ''),
       },
+      {
+        id: 'tls', icon: ICON.bolt, sections: ['tls'],
+        title: 'TLS fingerprint & API',
+        subtitle: 'Server names, certificate checks and TLS handshake details (core 2.4.0)',
+        value: () => '',
+      },
     ],
   },
   // >>> AETHER-APP-PATCH custom-configs (mobile 1.5.0 `CustomConfigsPage`)
@@ -108,6 +123,14 @@ const GROUPS = [
         title: 'Custom configs',
         subtitle: 'Your own VLESS, VMess, Trojan, Shadowsocks, SOCKS, WireGuard or npvt server, alone or chained',
         value: () => customConfigsValue(),
+      },
+      // موبایل ۱.۶.۰: «Clean IP scan settings» درست بعد از Custom configs می‌آید و
+      // زیرصفحهٔ مستقل خودش را دارد (تنظیمات اسکن به پروفایل تونل ربطی ندارد).
+      {
+        id: 'cleanip', icon: CLOUD, sections: [], render: () => renderCleanIpSettings(),
+        title: 'Clean IP scan settings',
+        subtitle: 'Scan profile, manual ping and the automatic scan for your own configs',
+        value: () => '',
       },
     ],
   },
@@ -129,6 +152,9 @@ const GROUPS = [
       },
     ],
   },
+  // موبایل ۱.۶.۰ `DisplayAndSoundGroup`: دو سوییچ مستقیماً در هاب (بدون زیرصفحه).
+  // `rows` خالی است تا ROWS/SETTINGS_ROWS و تست‌های زیرصفحه دست نخورند.
+  { title: 'Display and sound', rows: [], displaySound: true },
   {
     title: 'Application',
     rows: [
@@ -157,6 +183,7 @@ const GROUPS = [
     ],
   },
 ]
+
 
 const ROWS = GROUPS.flatMap((g) => g.rows)
 
@@ -191,6 +218,9 @@ function noticeBar() {
 function hubRow(row, go) {
   const el = document.createElement('div')
   el.className = 'setrow'
+  // شناسهٔ پایدارِ ردیف: تست‌ها نباید به «شمارهٔ ردیف» تکیه کنند؛ با افزودنِ ردیفی
+  // مثل cleanip شمارهٔ ردیف‌های بعدی جابه‌جا می‌شود و تست صفحهٔ دیگری را باز می‌کند.
+  if (row.id) el.dataset.row = row.id
   el.innerHTML =
     `<span class="setrow__icon">${row.icon}</span>` +
     '<span class="setrow__text"><span class="setrow__title"></span><span class="setrow__sub"></span></span>' +
@@ -226,6 +256,33 @@ function hubRow(row, go) {
   return el
 }
 
+/** ردیف هابِ دارای سوییچ (نمایش و صدا). مقدار از feedback.js خوانده و همان‌جا ذخیره می‌شود. */
+function switchRow(title, subtitle, read, write) {
+  const el = document.createElement('div')
+  el.className = 'setrow setrow--switch'
+  el.innerHTML =
+    '<span class="setrow__text"><span class="setrow__title"></span><span class="setrow__sub"></span></span>' +
+    '<button type="button" class="switch" role="switch"><span class="switch__knob"></span></button>'
+  el.querySelector('.setrow__title').textContent = t(title)
+  el.querySelector('.setrow__sub').textContent = t(subtitle)
+  const sw = el.querySelector('.switch')
+  const paint = () => {
+    const on = read()
+    sw.classList.toggle('is-on', on)
+    sw.setAttribute('aria-checked', String(on))
+  }
+  paint()
+  sw.setAttribute('aria-label', t(title))
+  const flip = () => { write(!read()); paint() }
+  sw.addEventListener('click', (e) => { e.stopPropagation(); flip() })
+  el.addEventListener('click', flip)
+  el.insertBefore(
+    aiHintButton({ title: t(title), subtitle: t(subtitle), value: () => (read() ? t('On') : t('Off')) }),
+    sw,
+  )
+  return el
+}
+
 function resetRow() {
   const el = document.createElement('div')
   el.className = 'setrow setrow--danger'
@@ -245,7 +302,7 @@ function resetRow() {
     if (!window.confirm(t('Reset every setting to its default?'))) return
     app.profile = await invoke('reset_profile')
     refreshAi() // ai-gate-follows-tunnel: بک‌اند پیش‌فرض ممکن است دروازه را عوض کند
-    refreshTab('advanced')
+    refreshTab(app.tab === 'tunnel' ? 'tunnel' : 'advanced')
   }
   el.addEventListener('click', run)
   el.addEventListener('keydown', (event) => {
@@ -265,6 +322,8 @@ function resetRow() {
  */
 function decorateFields(root) {
   for (const field of root.querySelectorAll('.field')) {
+    // The built-in verification card has the mobile info/title/switch header.
+    if (field.classList.contains('field--verify')) continue
     const labelEl = field.querySelector('.field__label')
     if (!labelEl) continue
     if (field.querySelector('.aihint')) continue
@@ -337,9 +396,25 @@ function subPage(row, back) {
 // ببرد: چند گزینه (نام تیم، روش ورود، حالت endpoint، split) بعد از ذخیره
 // `refreshTab('advanced')` صدا می‌زنند تا فیلدهای وابسته‌شان عوض شوند، و بدون
 // این، کاربری که وسط تایپِ نام تیم است به هاب پرت می‌شد.
-let OPEN = null
+const OPEN_BY = { advanced: null, tunnel: null }
+
+// ۱.۴.۰-ui: صفحهٔ اختصاصی «تنظیمات تونل» (دکمهٔ Tune در هدر) — فقط ردیف‌های
+// تونل به ترتیب نسخهٔ موبایل + کارت قرمز بازنشانی؛ هاب عمومی باز نمی‌شود.
+const TUNNEL_ROW_IDS = ['connection', 'custom', 'cleanip', 'transport', 'dns', 'upstream', 'tls']
 
 export function renderSettings() {
+  return buildSettings('advanced')
+}
+
+export function renderTunnelSettings() {
+  return buildSettings('tunnel')
+}
+
+function buildSettings(mode) {
+  const groups = mode === 'tunnel'
+    ? [{ title: 'Tunnel', rows: TUNNEL_ROW_IDS.map((id) => ROWS.find((r) => r.id === id)).filter(Boolean) }]
+    : GROUPS
+  const rowsHere = groups.flatMap((g) => g.rows)
   const root = document.createElement('div')
   root.className = 'view view--settings'
 
@@ -362,16 +437,18 @@ export function renderSettings() {
   // همین‌جا، بعد از هر تعویض، تضمین می‌کند نودی که تازه دوباره متصل شد فوراً
   // با آخرین پروفایل هم‌گام شود — نه فقط با رخدادِ بعدیِ تصادفی.
   const show = (node) => { host.replaceChildren(node); emit() }
-  const goHub = () => { OPEN = null; show(hub) }
-  const go = (row) => { OPEN = row.id; show(subPage(row, goHub)) }
+  const goHub = () => { OPEN_BY[mode] = null; show(hub) }
+  const go = (row) => { OPEN_BY[mode] = row.id; show(subPage(row, goHub)) }
 
+  // ۱.۴.۰-mobile: عنوان هاب در هدر موبایل است؛ اینجا پنهان می‌ماند (mobile.css).
   const title = document.createElement('h2')
   title.className = 'setpage__title setpage__title--hub'
   title.textContent = t('Tunnel settings')
+  title.hidden = true
   hub.appendChild(title)
   hub.appendChild(noticeBar())
 
-  for (const group of GROUPS) {
+  for (const group of groups) {
     const head = document.createElement('h3')
     head.className = 'sethub__group'
     head.textContent = t(group.title)
@@ -379,6 +456,14 @@ export function renderSettings() {
     const card = document.createElement('div')
     card.className = 'sethub__card'
     for (const row of group.rows) card.appendChild(hubRow(row, go))
+    if (group.displaySound) {
+      card.appendChild(switchRow('Home screen animations',
+        'Turn off the moving home-screen effects on weaker PCs. The live ping meter stays animated.',
+        homeAnimationsEnabled, setHomeAnimationsEnabled))
+      card.appendChild(switchRow('Connection sounds',
+        'Play a short cue when connected or disconnected.',
+        connectionSoundsEnabled, setConnectionSoundsEnabled))
+    }
     hub.appendChild(card)
   }
 
@@ -390,7 +475,7 @@ export function renderSettings() {
   // AETHER-APP-PATCH custom-configs: مقدارِ ردیفِ هاب از انبارِ کانفیگ‌ها.
   refreshCustomConfigs()
 
-  const reopen = OPEN ? ROWS.find((r) => r.id === OPEN) : null
+  const reopen = OPEN_BY[mode] ? rowsHere.find((r) => r.id === OPEN_BY[mode]) : null
   if (reopen) show(subPage(reopen, goHub))
   else show(hub)
   root.appendChild(host)

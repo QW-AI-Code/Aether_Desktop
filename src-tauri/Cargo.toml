@@ -1,6 +1,6 @@
 [package]
 name = "aether-desktop"
-version = "1.3.0"
+version = "1.4.0"
 description = "Aether Desktop - Windows edition"
 authors = ["Cluvex Studio"]
 edition = "2021"
@@ -30,6 +30,13 @@ wintun = "0.5"
 # اگر روزی رلهٔ فضای‌کاربرِ TUN→SOCKS5 نوشته شود، همان‌جا برمی‌گردند.
 # native-tls: دست‌دادن TLS برای جای‌یابی IP روی 443 (معادل tlsWrap موبایل). در ویندوز از SChannel بومی استفاده می‌کند.
 native-tls = "0.2"
+# NPVS v5 authenticated envelope, identical wire contract to mobile 1.6.0.
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+pbkdf2 = "0.12"
+p256 = { version = "0.13", features = ["ecdsa"] }
+zeroize = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [
@@ -48,6 +55,7 @@ windows = { version = "0.58", features = [
   "Win32_System_Memory",
   "Win32_System_Com",
   "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
   "Win32_UI_WindowsAndMessaging",
 ] }
 

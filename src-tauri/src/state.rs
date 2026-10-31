@@ -128,6 +128,8 @@ pub struct IpEndpoint {
     pub country_code: Option<String>,
     /// true = IP خروجی سرور (از دل تونل)، false = IP واقعی کاربر.
     pub via_tunnel: bool,
+    #[serde(default)]
+    pub alternate_ip: Option<String>,
 }
 
 /// حالت مشترک جست‌وجوی IP — معادل `ipInfo`/`ipLoading` در MainActivity.
@@ -284,6 +286,7 @@ pub struct AetherController {
     // <<< AETHER-APP-FIX tor-psiphon-waits-for-psiphon
     tunnel: Option<Tunnel>,
     share: ShareBridge,
+    uplink: Option<crate::uplink::Runtime>,
     sysproxy_on: bool,
     /// v1.2.0 — گارد نشتی WebRTC/UDP این نشست (Drop خودش آزادش می‌کند).
     guard: Option<LeakGuard>,
@@ -329,6 +332,10 @@ pub struct AetherController {
     // >>> AETHER-APP-PATCH custom-configs
     /// نشستِ کانفیگِ سفارشیِ فعلی؛ `None` = کلید خاموش، همه‌چیز مثل قبل.
     custom: Option<state_custom::CustomRun>,
+    smart_plus: Option<crate::smart_plus::Session>,
+    smart_plus_done: bool,
+    fresh_selection: Option<crate::custom::realdelay::ProbeTask>,
+    fresh_basis: Option<crate::custom::store::State>,
     // <<< AETHER-APP-PATCH custom-configs
 }
 
@@ -422,6 +429,7 @@ impl AetherController {
             psiphon_probe: None,
             tunnel: None,
             share: ShareBridge::new(),
+            uplink:None,
             sysproxy_on: false,
             guard: None,
             webrtc_leak: None,
@@ -445,6 +453,10 @@ impl AetherController {
             prep_kind: Prep::Plan,
             chain_exit_port: None,
             custom: None,
+            smart_plus:None,
+            smart_plus_done:false,
+            fresh_selection:None,
+            fresh_basis:None,
         };
 
         // >>> AETHER-APP-PATCH the-flag-is-already-on-disk
@@ -509,6 +521,7 @@ impl AetherController {
     /// اسرار را پس نمی‌گیرد)، پس Reset مسیر جداگانهٔ خودش را دارد؛ وگرنه
     /// توکن سازمانی پس از Reset بی‌صدا در حافظه زنده می‌ماند.
     pub fn reset_profile(&mut self) -> Result<ConnectionProfile> {
+        crate::smart_plus::memory::clear(&self.data_dir);
         let fresh = ConnectionProfile::default();
         self.apply_profile(fresh.clone())?;
         DiagnosticsLog::i(
@@ -613,6 +626,33 @@ impl AetherController {
     /// شرطِ زنجیره سرجایش می‌ماند: در حالت‌های زنجیره‌ای نامِ خط‌لوله فقط
     /// وقتی گفته می‌شود که استیج ۲ واقعاً خروجی را در دست گرفته باشد؛
     /// نوشتنِ `Aether → Psiphon` پیش از آن، ادعای دروغ است.
+    /// Resolves the protocol shown on the connection card. `Protocol::Smart` is a
+    /// planning marker, not a transport: while the Smart ladder/race is still in
+    /// flight (or after a reconnect restored the marker) fall back to the
+    /// candidate that is currently running, then to the first rung the planner
+    /// picks for this profile. The card therefore always shows a real transport.
+    pub(super) fn resolved_effective_protocol(&self) -> Option<crate::profile::Protocol> {
+        let eff = self.effective_protocol;
+        if let Some(p) = eff {
+            if p != crate::profile::Protocol::Smart {
+                return Some(p);
+            }
+        }
+        if let Some(cand) = self.plan.get(self.plan_index) {
+            if cand.profile.protocol != crate::profile::Protocol::Smart {
+                return Some(cand.profile.protocol);
+            }
+        }
+        if self.profile.protocol != crate::profile::Protocol::Smart {
+            return Some(self.profile.protocol);
+        }
+        let picked = crate::smart_auto::pick(&self.profile);
+        if picked != crate::profile::Protocol::Smart {
+            return Some(picked);
+        }
+        eff
+    }
+
     fn display_protocol(&self) -> Option<String> {
         // AETHER-APP-PATCH custom-configs: زنجیرهٔ سفارشی نامِ خودش را دارد.
         if let Some(label) = self.custom_display() {
@@ -631,8 +671,11 @@ impl AetherController {
         ) {
             return pipeline_name.map(str::to_string);
         }
+        // AETHER-APP-PATCH 1.4.0 smart-label: the card names the transport that
+        // actually won the Smart ladder/race (WireGuard, MASQUE, …) — never the
+        // generic `SMART` marker.
         let protocol = self
-            .effective_protocol
+            .resolved_effective_protocol()
             .map(|p| format!("{p:?}").to_uppercase());
         let show_chain = !self.profile.is_chained() || self.chain_exit_port.is_some();
         if show_chain {
@@ -679,7 +722,19 @@ impl AetherController {
 
     /// معادل `connect()` سرویس اندروید — فقط برنامه‌ریزی و اجرای پلهٔ اول؛
     /// بقیهٔ مراحل در tick() دنبال می‌شوند.
-    fn connect(&mut self) -> Result<()> {
+    fn connect(&mut self)->Result<()> {
+        self.fresh_selection=None;self.fresh_basis=None;
+        let snapshot=crate::custom::store::snapshot();
+        if self.profile.custom_auto_select && snapshot.enabled {
+            let install=std::env::current_exe().ok().and_then(|p|p.parent().map(Path::to_path_buf)).unwrap_or_else(||self.data_dir.clone());
+            if let Some(binary)=crate::custom::process::locate(&install,&self.data_dir){
+                let targets=crate::custom::selection::group_configs(&snapshot).into_iter().map(|c|crate::custom::realdelay::Target{id:c.id,name:c.name,outbound:c.outbound}).collect::<Vec<_>>();
+                if !targets.is_empty(){self.fresh_basis=Some(snapshot);self.fresh_selection=Some(crate::custom::realdelay::ProbeTask::spawn(binary,self.data_dir.clone(),targets));self.set_state(ConnectionState::StartingEngine,"Testing configs in the active group…");return Ok(());}
+            }
+        }self.connect_after_selection()
+    }
+    fn connect_after_selection(&mut self) -> Result<()> {
+        self.smart_plus=None;self.smart_plus_done=false;
         self.error = None;
         self.attempts = 0;
         self.chain_waiting = false;
@@ -872,6 +927,10 @@ impl AetherController {
 
     /// Builds the ladder once the fingerprint is in, then launches its first rung.
     fn launch_plan(&mut self, fingerprint: smart_auto::NetFingerprint) -> Result<()> {
+        if !self.smart_plus_done && self.custom.is_none() && crate::smart_plus::eligible(&self.profile){
+            self.smart_plus_done=true;self.smart_plus=Some(crate::smart_plus::Session::new(&self.profile,fingerprint,&self.data_dir));
+            return self.smart_plus_next();
+        }
         // استیج ۱ نردبانِ Smart Auto و سخت‌سازی ضد‌DPI را دست‌نخورده نگه می‌دارد،
         // پس یک نشست زنجیره‌ای همان اثر‌انگشت‌زنی و همان تلاش‌های مجدد نشست عادی
         // را می‌گیرد — ولی بدون مسیر داده و بدون پل.
@@ -882,9 +941,33 @@ impl AetherController {
         } else {
             self.profile.clone()
         };
-        self.plan = smart_auto::build_plan(&planning_profile, fingerprint);
+        self.plan = if self.custom_upstream_engine() {
+            state_custom::custom_upstream_plan(&planning_profile)
+        } else {smart_auto::build_plan(&planning_profile, fingerprint)};
         self.plan_index = 0;
         self.launch_candidate()
+    }
+
+    fn smart_plus_next(&mut self)->Result<()> {
+        let step=self.smart_plus.as_mut().and_then(|s|s.steps.pop_front());
+        match step {
+            Some(crate::smart_plus::plan::Step::Remembered(t))=>{
+                self.plan=vec![self.smart_plus.as_mut().unwrap().candidate(t,false)];self.plan_index=0;match self.launch_candidate(){Ok(())=>Ok(()),Err(e)=>{DiagnosticsLog::w("smart+",&e.to_string());self.smart_plus.as_mut().unwrap().failed(&self.data_dir);self.cleanup_native(true);self.smart_plus_next()}}
+            },
+            Some(crate::smart_plus::plan::Step::Race(lanes))=>{
+                let s=self.smart_plus.as_mut().unwrap();s.current=None;
+                s.race=Some(crate::smart_plus::RaceTask::spawn(s.user.clone(),lanes,&self.engine,self.data_dir.clone(),s.key.clone()));
+                self.deadline=None;self.set_state(ConnectionState::Connecting,"Smart: racing independent connection tactics…");Ok(())
+            },
+            None=>{let fp=self.smart_plus.take().map(|s|s.fingerprint).unwrap_or_default();DiagnosticsLog::i("smart+","Race/confirmation exhausted; using the complete Smart ladder");self.launch_plan(fp)}
+        }
+    }
+    fn smart_plus_poll(&mut self)->bool {
+        let Some(race)=self.smart_plus.as_mut().and_then(|s|s.race.as_mut())else{return false;};
+        let Some(winner)=race.poll()else{return true;};
+        self.smart_plus.as_mut().unwrap().race=None;
+        let result=if let Some(t)=winner {let s=self.smart_plus.as_mut().unwrap();self.plan=vec![s.candidate(t,true)];self.plan_index=0;self.launch_candidate()}else{self.smart_plus_next()};
+        if let Err(e)=result{DiagnosticsLog::w("smart+",&e.to_string());if let Some(s)=self.smart_plus.as_mut(){s.failed(&self.data_dir);}self.cleanup_native(true);if let Err(e)=self.smart_plus_next(){self.fail(&e.to_string());}}true
     }
 
     /// اجرای یک پله از نردبان — معادل یک دور `runLadder`.
@@ -939,6 +1022,7 @@ impl AetherController {
         // The engine is told how long this rung is allowed to take, so its own
         // endpoint scan is sized to fit inside that window instead of being
         // killed 78% of the way through it. See `engine::AetherProcess::start`.
+        self.engine.set_custom_tcp_upstream(self.custom_upstream_engine());
         self.engine.start(&engine_profile, Some(cand.timeout_ms))?;
         // ۱.۲.۵ — مهلتِ دیوارِ ساعت برای نشست تور جداست، و **بودجهٔ اسکن نیست**.
         // آن یکی بالا به موتور رفت تا اسکن لبه را اندازه کند؛ این یکی می‌گوید
@@ -994,7 +1078,7 @@ impl AetherController {
     /// موتور را **پشتِ** تورِ آماده اجرا می‌کند — حالتِ `Tor → Aether`.
     /// As on mobile, establish Tor first. Unlike the old `--tor-only --psiphon`
     /// invocation, this reuses the same tor.exe/obfs4 cache that succeeds in the
-    /// Tor-only and reverse modes. Core 2.3.0 then owns ONLY Psiphon and uses
+    /// Tor-only and reverse modes. Core 2.4.0 then owns ONLY Psiphon and uses
     /// AETHER_UPSTREAM for its server dials. No WARP hop is introduced.
     fn start_psiphon_behind_tor(&mut self) -> Result<()> {
         let cand = self.plan[self.plan_index].clone();
@@ -1401,6 +1485,12 @@ impl AetherController {
 
     /// چند وقت بی‌حرکتیِ درصد یعنی این تلاش مرده است.
     fn tor_stall_ms(&self) -> u64 {
+        // Tor inside a custom-config chain (Config → Tor…, Config → Aether → Tor)
+        // bootstraps through extra hops; wait for the whole budget instead of
+        // declaring a stall after 45s.
+        if self.custom.is_some() {
+            return diagnostics::TOR_STALL_BRIDGED_MS;
+        }
         if self.tor_bridges_can_help() {
             diagnostics::TOR_STALL_BRIDGED_MS
         } else {
@@ -1520,7 +1610,7 @@ impl AetherController {
     }
 
     /// معادل بخش establish در connectAttempt — فقط بعد از بازشدن پورت SOCKS5.
-    fn bring_up_data_path(&mut self) {
+    fn bring_up_data_path(&mut self) -> bool {
         let profile = self
             .plan
             .get(self.plan_index)
@@ -1560,6 +1650,9 @@ impl AetherController {
         crate::smart_routes::set_front_udp_passthrough(!self.profile.is_chained());
         // <<< AETHER-APP-PATCH bridge-smart-routes
 
+        // Activate BEFORE accepting application flows; every relay captures this generation.
+        if matches!(self.profile.backend,crate::profile::TransportBackend::AetherPsiphon|crate::profile::TransportBackend::TorPsiphon)&&self.uplink.is_none(){self.uplink=Some(crate::uplink::Runtime::start(engine::exit_socks_port()));}
+
         // ۱) پل محلی HTTP/SOCKS — معادل hev-socks5-tunnel/ShareBridge (مسیر دادهٔ واقعی).
         if let Err(e) = self.share.start(
             engine::SHARE_SOCKS_PORT,
@@ -1580,14 +1673,17 @@ impl AetherController {
                 .unwrap_or_default();
             match Tunnel::establish(&profile, &wintun) {
                 Ok(t) => self.tunnel = Some(t),
-                Err(e) => DiagnosticsLog::w(
-                    "tun",
-                    &format!(
-                        "Wintun unavailable ({e}); continuing with the system-proxy data path."
-                    ),
-                ),
+                Err(e) => {
+                    // AETHER-APP-FIX no-sysproxy-fallback (1.4.0): without the TUN
+                    // adapter the connection is NOT reported as working; it fails
+                    // visibly instead of silently degrading to the system proxy.
+                    let why = format!("Wintun/TUN failed: {e:#}");
+                    self.fail(&why);
+                    return false;
+                }
             }
         }
+        true
     }
 
     /// Core 2.1.0 starts and supervises the bundled Psiphon executable.
@@ -1614,7 +1710,9 @@ impl AetherController {
             if self.custom_hold_for_last(engine::CHAIN_SOCKS_PORT) {
                 return;
             }
-            self.bring_up_data_path();
+            if !self.bring_up_data_path() {
+                return;
+            }
             self.begin_verification();
         } else if self.past_deadline() {
             self.chain_waiting = false;
@@ -1626,6 +1724,13 @@ impl AetherController {
     fn begin_verification(&mut self) {
         let slot: Arc<Mutex<Option<diagnostics::SelfTestOutcome>>> = Arc::new(Mutex::new(None));
         self.verify_slot = Some(slot.clone());
+        let verify=if self.custom.is_some(){self.profile.custom_verify_connection}else{self.profile.verify_connection};
+        if !verify {
+            DiagnosticsLog::w(TAG,"Initial connection verification disabled by user; listener/data path only. Leak protection and ongoing health monitoring remain enabled.");
+            *slot.lock()=Some(diagnostics::SelfTestOutcome{ok:true,exit:None,latency_ms:None,leak:None});
+            self.set_state(ConnectionState::Verifying,"Initial verification skipped");
+            return;
+        }
         let remaining = self
             .deadline
             .map(|d| d.saturating_duration_since(Instant::now()).as_millis() as u64)
@@ -1690,6 +1795,13 @@ impl AetherController {
     /// ترتیب ۱.۲.۲: اول پروکسی سیستمی (تا مرورگر به پل مُرده نچسبد)، بعد
     /// اشتراک، بعد تونل، بعد موتور — بدون فریز.
     fn cleanup_native(&mut self, preserve_kill_switch: bool) {
+        crate::custom::ai_policy::clear();
+        self.uplink=None;
+        self.fresh_selection=None;self.fresh_basis=None;
+        if let Some(s)=self.smart_plus.as_mut(){s.race=None;}
+        if !preserve_kill_switch{self.smart_plus=None;}
+        self.custom_trace("cleanup", if preserve_kill_switch {"reconnect/rung transition; preserve kill switch"} else {"final teardown"});
+        {let mut ip=self.ip_slot.lock();ip.session+=1;ip.loading=false;}
         // An abandoned attempt must not keep probing through the next one.
         diagnostics::cancel_self_test();
         if self.sysproxy_on {
@@ -1823,6 +1935,8 @@ impl AetherController {
 
     /// شکست یک پله → پلهٔ بعدی نردبان؛ تمام‌شدن نردبان → Failed با پیام روشن.
     fn advance_or_fail(&mut self, why: &str) {
+        if let Some(s)=self.smart_plus.as_mut(){s.failed(&self.data_dir);}
+        self.custom_trace("advance_or_fail",why);
         DiagnosticsLog::w(TAG, &format!("{why} — tearing down this attempt."));
         // >>> AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
         // Plain Aether only: chains share the cache files with the direct modes,
@@ -1845,6 +1959,7 @@ impl AetherController {
         // <<< AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
         self.verify_slot = None;
         diagnostics::reset_checks();
+        if self.smart_plus.is_some(){if let Err(e)=self.smart_plus_next(){self.fail(&e.to_string());}return;}
         self.plan_index += 1;
         if self.plan_index < self.plan.len() {
             // The next rung also has to wait for the local port, so it goes back
@@ -1933,6 +2048,12 @@ impl AetherController {
         match self.state {
             // Waiting for the off-lock prep thread (port release + fingerprint).
             ConnectionState::StartingEngine => {
+                if let Some(task)=self.fresh_selection.as_mut(){
+                    let Some(rows)=task.poll()else{return;};self.fresh_selection=None;
+                    let current=crate::custom::store::snapshot();let unchanged=self.fresh_basis.take().as_ref()==Some(&current);
+                    let result=if unchanged{crate::custom::selection::record(&rows);if let Some(id)=crate::custom::selection::cached_choice(&current){crate::custom::store::update(|s|s.select(&id));}self.connect_after_selection()}else{self.connect()};
+                    if let Err(e)=result{self.fail(&e.to_string());}return;
+                }
                 let outcome = self.prep_slot.as_ref().and_then(|s| s.lock().take());
                 if let Some(outcome) = outcome {
                     self.prep_slot = None;
@@ -1958,6 +2079,7 @@ impl AetherController {
                 }
             }
             ConnectionState::Connecting => {
+                if self.smart_plus_poll(){return;}
                 // AETHER-APP-PATCH custom-configs: فازهای Xray (جلو/پشت).
                 if self.custom_poll() {
                     return;
@@ -2209,7 +2331,9 @@ impl AetherController {
                             return;
                         }
                         DiagnosticsLog::i(TAG, "SOCKS5 port is up — bringing up the data path.");
-                        self.bring_up_data_path();
+                        if !self.bring_up_data_path() {
+                            return;
+                        }
                         self.begin_verification();
                     }
                 } else if self.past_deadline() {
@@ -2243,6 +2367,7 @@ impl AetherController {
                                 ip: exit.ip.clone(),
                                 country_code: exit.country_code.clone(),
                                 via_tunnel: true,
+                                alternate_ip: exit.alternate_ip.clone(),
                             });
                             g.loading = false;
                         }
@@ -2290,6 +2415,8 @@ impl AetherController {
                             .is_some()
                             .then(|| Instant::now() + CIRCUIT_HUNT_WINDOW);
                         // <<< AETHER-APP-PATCH a-bad-circuit-is-not-a-bad-network
+                        if let Some(s)=self.smart_plus.as_mut(){s.succeeded(&self.data_dir,self.profile.verify_connection);}
+                        self.smart_plus=None;
                         self.set_state(ConnectionState::Connected, "");
                         // ۱.۴.۰ — به‌روزرسانیِ هفتگیِ فهرست‌ها، از داخلِ همین تونل، روی ترد پس‌زمینه.
                         crate::smart_lists::refresh_if_due(
@@ -2297,10 +2424,9 @@ impl AetherController {
                             &self.profile,
                             engine::exit_socks_port(),
                         );
-                        DiagnosticsLog::i(TAG, "All checks passed — tunnel is ready.");
-                        if out.exit.is_none() {
-                            spawn_ip_lookup(self.ip_slot.clone(), true);
-                        }
+                        DiagnosticsLog::i(TAG, if (self.custom.is_some() && self.profile.custom_verify_connection) || (self.custom.is_none() && self.profile.verify_connection) {"All checks passed — tunnel is ready."} else {"Initial verification skipped — data path is up; health monitoring continues."});
+                        // Refresh even when verification supplied an IP: prefer IPv4 and enrich missing country.
+                        spawn_ip_lookup(self.ip_slot.clone(), true);
                     } else if out.leak.as_ref().map(|l| l.leaking).unwrap_or(false) {
                         // Fail closed. A tunnel that exposes the real IP is not
                         // a successful connection, even when TCP/DNS passed.
@@ -2435,11 +2561,35 @@ impl AetherController {
                         // superviseEngine. The fingerprint and the port wait go
                         // to the prep thread, so a reconnect no longer freezes
                         // the UI for several seconds either.
-                        let kind = if self.plan.is_empty() {
+                        let mut kind = if self.plan.is_empty() {
                             Prep::Plan
                         } else {
                             Prep::Candidate
                         };
+                        // ۱.۴.۰: اگر نشستِ سفارشی/زنجیره فعال بود ولی در مسیرِ
+                        // reconnect (سوییچِ خودکار، watchdog، مرگِ موتور) بسته
+                        // شده، خطِ لولهٔ سفارشی از نو برپا می‌شود — با همان
+                        // پورت‌های مجزا (tor.exe روی 1820، موتور روی 1819، استیجِ
+                        // زنجیره روی 1825). پیش از این، نشست به «اترِ تک‌کانفیگ»
+                        // (پروفایلِ پیش‌فرض) ریست می‌شد و زنجیره از بین می‌رفت.
+                        let custom_selected = crate::custom::store::selection().is_some();
+                        if custom_selected && self.custom.is_none() {
+                            if let Err(e) = self.custom_begin() {
+                                self.fail(&e.to_string());
+                                return;
+                            }
+                            self.plan.clear();
+                            kind = Prep::Plan;
+                        }
+                        if let Some(label) = self.custom_chain_label() {
+                            DiagnosticsLog::i(
+                                TAG,
+                                &format!(
+                                    "Reconnect keeps the custom pipeline «{label}» — tor.exe stays on 127.0.0.1:{}, the engine on 127.0.0.1:{}, the chain stage on 127.0.0.1:{}.",
+                                    engine::TOR_SOCKS_PORT, engine::LOCAL_SOCKS_PORT, engine::CHAIN_SOCKS_PORT
+                                ),
+                            );
+                        }
                         self.set_state(ConnectionState::StartingEngine, "Reconnecting…");
                         self.begin_prep(kind);
                     }
@@ -2454,6 +2604,7 @@ impl AetherController {
     }
 
     fn fail(&mut self, why: &str) {
+        self.custom_trace("fail",why);
         DiagnosticsLog::e(TAG, why);
         self.cleanup_native(true);
         // AETHER-APP-PATCH custom-configs: پروفایلِ کاربر برمی‌گردد.
@@ -2471,6 +2622,7 @@ impl AetherController {
     }
 
     fn set_state(&mut self, state: ConnectionState, detail: &str) {
+        if state==ConnectionState::Connected{crate::custom::ai_policy::note(self.custom.as_ref().map(|r|r.sel.mode),engine::exit_socks_port());}else{crate::custom::ai_policy::clear();}
         let prev = self.state;
         // >>> AETHER-APP-FIX no-duplicate-status-events
         // این متد از دلِ حلقهٔ tick صدا زده می‌شود و پیش از این هر بار — یعنی
@@ -2631,24 +2783,30 @@ fn spawn_ip_lookup(slot: Arc<Mutex<IpSlot>>, via_tunnel: bool) {
         }
         g.session
     };
+    let port=engine::exit_socks_port();
     std::thread::Builder::new()
         .name("aether-ipinfo".into())
         .spawn(move || {
-            let result = if via_tunnel {
-                probe::fetch_ip_via_socks_retry(12, 1_000, 6_000)
-            } else {
-                probe::fetch_ip_direct_retry(6, 2_000, 6_000)
-            };
-            let mut g = slot.lock();
-            if g.session != session {
-                return; // نتیجهٔ کهنه — فاز عوض شده است.
+            if via_tunnel {
+                for _ in 0..12 {
+                    if slot.lock().session!=session {return;}
+                    let mut published_ip:Option<String>=None;
+                    let result=probe::fetch_ip_via_socks_enriched(6_000,port,|i| {
+                        let mut g=slot.lock();
+                        if g.session!=session {return;}
+                        // Once this lookup published an IP, enrichment may only update that IP.
+                        if published_ip.as_ref().map(|ip|ip!=&i.ip).unwrap_or(false) {return;}
+                        published_ip=Some(i.ip.clone());
+                        g.info=Some(IpEndpoint{ip:i.ip.clone(),country_code:i.country_code.clone(),via_tunnel:true,alternate_ip:i.alternate_ip.clone()});g.loading=false;
+                    });
+                    if result.is_some(){return;}
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+                let mut g=slot.lock();if g.session==session {g.loading=false;}return;
             }
-            g.info = result.map(|i| IpEndpoint {
-                ip: i.ip,
-                country_code: i.country_code,
-                via_tunnel,
-            });
-            g.loading = false;
-        })
-        .ok();
+            let result=probe::fetch_ip_direct_retry(6,2_000,6_000);
+            let mut g=slot.lock();if g.session!=session {return;}
+            g.info=result.map(|i|IpEndpoint{ip:i.ip,country_code:i.country_code,via_tunnel:false,alternate_ip:i.alternate_ip});
+            g.loading=false;
+        }).ok();
 }

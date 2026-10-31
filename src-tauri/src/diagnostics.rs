@@ -849,7 +849,7 @@ pub fn run(profile: &ConnectionProfile) -> Report {
 }
 
 #[cfg(windows)]
-fn is_elevated() -> bool {
+pub(crate) fn is_elevated() -> bool {
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::Security::{
         GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
@@ -877,7 +877,7 @@ fn is_elevated() -> bool {
 }
 
 #[cfg(not(windows))]
-fn is_elevated() -> bool {
+pub(crate) fn is_elevated() -> bool {
     true
 }
 

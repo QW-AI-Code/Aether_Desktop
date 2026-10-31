@@ -76,15 +76,6 @@ on:
       - 'LICENSE'
       - '.gitignore'
   workflow_dispatch:
-    inputs:
-      core_target:
-        description: "Pin the engine core to an exact upstream version (e.g. 1.3.2). Empty = latest release."
-        required: false
-        default: ''
-      core_sync:
-        description: "Set to 'off' to keep the vendored core and skip the upstream upgrade entirely."
-        required: false
-        default: 'on'
 
 permissions:
   contents: read
@@ -139,7 +130,7 @@ jobs:
             "src/styles/tokens.css"
             "src/styles/app.css"
             "src/styles/chat.css"
-            "src/styles/desktop.css"
+            "src/styles/mobile.css"
             "src/flags.js"
             "src/views/home.js"
             "src/views/advanced.js"
@@ -338,8 +329,8 @@ jobs:
       - name: That guard must catch a glued line and not cry over sound code
         run: bash scripts/check-rust-parses-negative.sh
 
-      # ۱.۳.۰ — هستهٔ native/aether باید بایت‌به‌بایت همان Aether-main 2.3.0 باشد.
-      - name: The vendored core must be the unmodified upstream 2.3.0
+      # ۱.۳.۰ — هستهٔ native/aether باید بایت‌به‌بایت همان Aether-main 2.4.0 باشد.
+      - name: The vendored core must be the unmodified upstream 2.4.0
         run: python3 scripts/check-core-pristine.py
       - name: That guard must catch a patched or swapped core
         run: bash scripts/check-core-pristine-negative.sh
@@ -391,6 +382,16 @@ jobs:
         run: npm run test:layout
         env:
           CHROME: /usr/bin/google-chrome
+      - name: UI/UX 1.4.0 regressions and screenshots (a1-a7)
+        run: npm run test:uiux
+        env:
+          CHROME: /usr/bin/google-chrome
+      - name: Upload UI/UX evidence (web renderer with test IPC)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aether-UIUX-1.4.0-Web-QA
+          path: validation/uiux140/
+          retention-days: 1
 
   # ---------------------------------------------------------------------------
   # 1) همگام‌سازی هسته — معادل scripts/sync-core.sh مخزن اندروید.
@@ -421,16 +422,16 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # اهرم کنترل رانش بالادست: اگر نسخهٔ جدید هسته خراب بود، از
           # Actions → Run workflow می‌توان نسخهٔ سالم قبلی را پین کرد.
-          CORE_TARGET: ${{ github.event.inputs.core_target || '' }}
-          # Ship the reviewed 2.3.0 tree; never replace it with a later tag on push.
-          # Explicit workflow_dispatch core_sync=on remains available for review.
-          CORE_SYNC: ${{ github.event.inputs.core_sync || 'off' }}
+          CORE_TARGET: ''
+          # Ship the reviewed 2.4.0 tree; never replace it with a later tag on push.
+          # Core auto-update is DISABLED: pinned to the vendored 2.4.0 tree; no dispatch input can enable it.
+          CORE_SYNC: 'off'
         run: bash scripts/sync-core.sh
 
-      # ۱.۳.۰ — هستهٔ اِتِر از روی Aether-main 2.3.0 کامل بازنویسی شد و هیچ پچی
+      # ۱.۳.۰ — هستهٔ اِتِر از روی Aether-main 2.4.0 کامل بازنویسی شد و هیچ پچی
       # از سمتِ برنامه در آن نیست؛ تمام سیم‌کشی در src-tauri است. این گیت
       # تضمین می‌کند هستهٔ وندورشده (یا هستهٔ تازه‌همگام‌شده) دست‌نخورده بماند.
-      - name: Core must be the unmodified upstream source
+      - name: Core must match upstream plus reviewed overlay
         run: |
           python3 scripts/clean-legacy-1.2.5.py --ci
           python3 scripts/check-core-pristine.py
@@ -566,7 +567,7 @@ jobs:
           node-version: '24'
 
       - name: Install frontend deps
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       # باید پیش از هر دستور cargo اجرا شود (dist-web لازم است).
       - name: Build frontend bundle
@@ -673,7 +674,7 @@ jobs:
           }
 
       # موتور باید همان هستهٔ CORE_VERSION باشد — هستهٔ دست‌نخورده نسخهٔ خودش را
-      # با `--version` می‌گوید (`aether 2.3.0`).
+      # با `--version` می‌گوید (`aether 2.4.0`).
       - name: Engine must be the bundled core version
         shell: pwsh
         run: |

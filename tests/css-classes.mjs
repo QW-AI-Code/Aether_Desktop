@@ -15,7 +15,7 @@ const walk = (dir) => {
 }
 walk('src')
 
-const css = ['src/styles/app.css', 'src/styles/tokens.css', 'src/styles/chat.css', 'src/styles/desktop.css']
+const css = ['src/styles/app.css', 'src/styles/tokens.css', 'src/styles/chat.css', 'src/styles/mobile.css', 'src/styles/parity.css']
   .map((f) => readFileSync(f, 'utf8'))
   .join('\n')
 const cssClasses = new Set()
@@ -31,7 +31,9 @@ const ALLOWED = new Set([
   'field--tiles', 'seg--grid', 'seg--sheet', 'seg--odd', 'seg__flag', 'seg__text', 'seg__check',
   'pnote', 'pnote__icon', 'pnote__text',
   'model-item', 'model-tier', 'model-description',
-  'sethub', 'twin--min', 'twin--max',
+  'sethub', 'twin--min', 'drawer-open',
+  // Semantic button roles; all visual rules come from mobile-header__btn.
+  'mobile-header__menu', 'mobile-header__back', 'mobile-header__action',
 ])
 
 const used = new Map()

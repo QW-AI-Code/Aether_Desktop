@@ -27,7 +27,7 @@ window.__TAURI_INTERNALS__ = {
     invoked.push([cmd, args])
     if (cmd === 'plugin:event|listen') return Promise.resolve(1)
     if (cmd === 'core_caps') {
-      return Promise.resolve({ zeroTrust: true, routing: true, customDns: true, upstream: true, routeSniff: true })
+      return Promise.resolve({ zeroTrust: true, routing: true, customDns: true, upstream: true, routeSniff: true, tls24: true })
     }
     return Promise.resolve(null)
   },
@@ -46,7 +46,7 @@ const PROFILE = {
   dns: ['1.1.1.1'], upstream: 'socks5://127.0.0.1:1080', reprovision: true,
 }
 
-const main = await import('../src/main.js')
+const main = await import('../src/main.js').then(async m => { await m.bootReady; return m })
 main.app.profile = PROFILE
 main.app.snapshot = { ...main.app.snapshot, state: 'CONNECTED' }
 
@@ -63,7 +63,8 @@ const view = renderSettings()
 document.getElementById('view').appendChild(view)
 const hubRows = view.querySelectorAll('.setrow')
 console.log('rows in hub =', hubRows.length)
-check(hubRows.length === SETTINGS_ROWS.length + 1, 'هر ردیف + ردیف بازنشانی رندر شد')
+// +2: دو سوییچ «نمایش و صدا» (انیمیشن صفحهٔ اصلی، صدای اتصال) مستقیماً در هاب‌اند.
+check(hubRows.length === SETTINGS_ROWS.length + 1 + 2, 'هر ردیف + دو سوییچ نمایش‌وصدا + ردیف بازنشانی رندر شد')
 check(view.querySelectorAll('.setrow .aihint').length === hubRows.length, 'هر ردیف هاب یک ✨ دارد')
 check(view.querySelector('.setnotice')?.hidden === false, 'با تونلِ وصل، نوار اطلاع دیده می‌شود')
 
@@ -80,7 +81,7 @@ for (const row of SETTINGS_ROWS) {
   el.closest('.setrow').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   const controls = view.querySelectorAll('.seg, .select, .switch, .input, .fdrop')
   const hints = view.querySelectorAll('.field__head .aihint')
-  const labels = view.querySelectorAll('.field__label')
+  const labels = view.querySelectorAll('.field:not(.field--verify) .field__label')
   console.log(`${row.id}: controls=${controls.length} labels=${labels.length} ✨=${hints.length}`)
   // `controlless`: زیرصفحه‌ای که فقط خواندنی است (بایگانیِ پیام‌ها) کنترلی ندارد.
   check(row.controlless || controls.length > 0, `${row.id}: کنترل‌های واقعی رندر شدند`)
@@ -102,6 +103,12 @@ const EXPECTED = [
   'fragment', 'ech', 'lanShare', 'killSwitch', 'ipv6Protection', 'reconnectAttempts',
   'splitMode', 'splitApps', 'team', 'accessMode', 'accessId', 'accessSecret', 'gateway',
   'routeBlock', 'routeDirect', 'routeSniff', 'dns', 'upstream', 'reprovision',
+  // core 2.4.0 TLS / API options
+  'masqueSni', 'apiAddress', 'apiSni', 'apiHost', 'tlsVerify', 'tlsTrustAnchors',
+  'tlsCertCompression', 'tlsCiphers', 'tls13Ciphers', 'tlsGroups', 'tlsKeyShares',
+  'tlsSigalgs', 'tlsAlps', 'tlsServerPadding', 'disableGrease', 'enableGreaseSigalgs',
+  'enableEchGrease', 'disableOcspStapling', 'disableSct', 'disableSessionTicket',
+  'disableExtensionPermutation',
 ]
 const missing = EXPECTED.filter((k) => !seen.has(k))
 console.log('keys reachable =', seen.size)

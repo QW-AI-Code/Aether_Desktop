@@ -15,7 +15,7 @@
 //!
 //! # درمان (سه لایهٔ مستقل)
 //! ۱. **سیاست رسمی مرورگر (بدون نیاز به Administrator).** برای خانوادهٔ
-//!    کرومیوم WebRtcIPHandlingPolicy = disable_non_proxied_udp و برای
+//!    کرومیوم WebRtcIPHandling = disable_non_proxied_udp و برای
 //!    فایرفاکس media.peerconnection.ice.proxy_only = 1 زیر
 //!    HKCU\Software\Policies نوشته می‌شود: WebRTC حق ندارد UDP غیرپروکسی
 //!    بفرستد، پس نامزد srflx اصلاً ساخته نمی‌شود.
@@ -91,7 +91,7 @@ const CHROMIUM_POLICY_KEYS: [&str; 7] = [
     r"HKCU\Software\Policies\Opera Software\Opera",
     r"HKCU\Software\Policies\Yandex\YandexBrowser",
 ];
-const CHROMIUM_POLICY_NAME: &str = "WebRtcIPHandlingPolicy";
+const CHROMIUM_POLICY_NAME: &str = "WebRtcIPHandling";
 const CHROMIUM_POLICY_VALUE: &str = "disable_non_proxied_udp";
 
 const FIREFOX_PREFS_KEY: &str = r"HKCU\Software\Policies\Mozilla\Firefox\Preferences";
@@ -723,7 +723,7 @@ fn reg_read(key: &str, name: &str) -> Option<String> {
 }
 
 /// خروجی `reg query` را به مقدار خام تبدیل می‌کند.
-/// نمونه: "    WebRtcIPHandlingPolicy    REG_SZ    disable_non_proxied_udp"
+/// نمونه: "    WebRtcIPHandling    REG_SZ    disable_non_proxied_udp"
 fn parse_reg_value(output: &str, name: &str) -> Option<String> {
     for line in output.lines() {
         let trimmed = line.trim();
@@ -819,7 +819,7 @@ mod tests {
 
     #[test]
     fn parses_a_string_registry_value() {
-        let out = "\r\nHKEY_CURRENT_USER\\Software\\Policies\\Google\\Chrome\r\n    WebRtcIPHandlingPolicy    REG_SZ    disable_non_proxied_udp\r\n";
+        let out = "\r\nHKEY_CURRENT_USER\\Software\\Policies\\Google\\Chrome\r\n    WebRtcIPHandling    REG_SZ    disable_non_proxied_udp\r\n";
         assert_eq!(
             parse_reg_value(out, CHROMIUM_POLICY_NAME).as_deref(),
             Some(CHROMIUM_POLICY_VALUE)

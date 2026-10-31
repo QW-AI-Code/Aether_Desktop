@@ -497,7 +497,7 @@ impl AiSession {
     /// مدل‌های موجود برای این کلید را کشف و کَش می‌کند.
     pub fn refresh_models(&self, profile: &ConnectionProfile) -> Result<(), String> {
         let (key, _) = self.begin()?;
-        let port = ai_gate::socks_port_for(profile);
+        let port = match ai_gate::socks_port_for(profile){Ok(port)=>port,Err(e)=>{self.finish(None);return Err(e);}};
         // برچسبِ مسیر پیش از درخواست ساخته می‌شود: بعد از موفقیت، قفل دستِ ما است
         // و خواندنِ پروفایل زیر قفل، همان قرضِ دوگانه‌ای است که کامپایلر رد می‌کند.
         let via = backend_label(profile.backend).to_string();
@@ -570,7 +570,7 @@ impl AiSession {
             return Ok(hit.clone());
         }
         let (key, model) = self.begin()?;
-        let port = ai_gate::socks_port_for(profile);
+        let port = match ai_gate::socks_port_for(profile){Ok(port)=>port,Err(e)=>{self.finish(None);return Err(e);}};
         let turns = [GeminiTurn {
             from_user: true,
             text: ai_prompts::explain_user(title, subtitle, value),
@@ -695,7 +695,7 @@ impl AiSession {
             (inner.epoch, history)
         };
         let lang = Lang::from_code(lang_code);
-        let port = ai_gate::socks_port_for(profile);
+        let port = match ai_gate::socks_port_for(profile){Ok(port)=>port,Err(e)=>{self.finish(None);return Err(e);}};
         // ۱.۴.۰-r4: snapshotِ حاشیه‌دار + نامِ مدل + وضعیتِ زندهٔ اتصال.
         let system = ai_prompts::chat_system(
             lang,
@@ -1131,7 +1131,7 @@ impl AiSession {
         lang_code: &str,
     ) -> Result<(ConnectionProfile, AdvisorResult), String> {
         let (key, model) = self.begin()?;
-        let port = ai_gate::socks_port_for(profile);
+        let port = match ai_gate::socks_port_for(profile){Ok(port)=>port,Err(e)=>{self.finish(None);return Err(e);}};
 
         // پاک‌سازی **پیش از** ساختنِ پرامپت انجام می‌شود، نه بعدش: هیچ مسیری
         // نباید وجود داشته باشد که لاگ خام حتی وارد یک رشته شود که به شبکه برود.

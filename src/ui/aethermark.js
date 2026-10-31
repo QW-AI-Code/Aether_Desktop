@@ -312,7 +312,7 @@ function drawBuildLine(ctx, w, y, colour, entered) {
  * هر حالت دیگری اجرا کند؛ همان قراردادی که `ConnectButton.kt` با «این
  * composable فقط در حالت متصل وجود دارد» داشت.
  */
-export function startAetherMark(canvas) {
+export function startAetherMark(canvas, { animated = true } = {}) {
   // ورودِ یک‌باره. از صفر شروع می‌شود چون اولین فریمِ این نشان، همان لحظه‌ای
   // است که تونل بالا آمده — اتصال یک رخداد است و یکی می‌ارزد.
   const bornAt = performance.now()
@@ -327,7 +327,8 @@ export function startAetherMark(canvas) {
   let paths = null
   const size = trackSize(canvas, () => { paths = null })
 
-  const stopLoop = frameLoop((frameNow) => {
+  let stopLoop = null
+  stopLoop = frameLoop((frameNow) => {
     size.poll(frameNow)
     const w = size.width || canvas.clientWidth
     const h = size.height || canvas.clientHeight
@@ -338,8 +339,10 @@ export function startAetherMark(canvas) {
     fitCanvas(canvas, w, h)
     const ctx = canvas.getContext('2d')
 
-    const now = frameNow
-    const age = now - bornAt
+    // animated=false (انیمیشن‌های صفحهٔ اصلی خاموش): همان `AetherMark(animated=false)` موبایل —
+    // یک فریمِ ثابتِ کاملاً ظاهرشده، بدون موج ورود و بدون حلقه.
+    const now = animated ? frameNow : 0
+    const age = animated ? now - bornAt : REVEAL_MS
     const huePhase = (now / HUE_STEP_MS) % MARK_COLORS.length
     const colour = cycleColour(huePhase)
     const ahead = cycleColour(huePhase + 0.45)
@@ -384,6 +387,7 @@ export function startAetherMark(canvas) {
 
     // ۴. خط ساخت: فقط تا وقتی موج در حال اجراست.
     if (entered < 0.999) drawBuildLine(ctx, w, wipeTop, colour, entered)
+    if (!animated && stopLoop) stopLoop()
   }, FRAME_CAPS.mark)
 
   // نشان در هر گذارِ غیرِ متصل لغو می‌شود، پس ناظرِ اندازه هم باید همان‌جا آزاد

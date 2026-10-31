@@ -30,10 +30,11 @@ export function openModal({ title, onEscape } = {}) {
   const onKey = (ev) => {
     if (ev.key === 'Escape' && onEscape) {
       ev.preventDefault()
+      ev.stopPropagation() // Escape closes the dialog, never the underlying settings page.
       onEscape()
     }
   }
-  document.addEventListener('keydown', onKey)
+  document.addEventListener('keydown', onKey, true)
   document.body.append(root)
 
   return {
@@ -42,7 +43,7 @@ export function openModal({ title, onEscape } = {}) {
     actions,
     setTitle: (s) => { head.textContent = s },
     close: () => {
-      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey, true)
       root.remove()
     },
   }

@@ -15,11 +15,19 @@ use super::{
     ChainMode, ConfigFormat, ConfigProtocol, ConfigSource, CustomConfig, CustomSelection, MAX_NAME,
 };
 use serde_json::{json, Value};
+use serde::{Serialize,Deserialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 pub const FILE_NAME: &str = "custom_configs.bin";
 pub const MAX_CONFIGS: usize = 500;
+
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+pub struct Group {pub id:String,pub name:String}
+#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+#[serde(rename_all="camelCase")]
+pub struct Subscription {pub id:String,pub name:String,pub url:String,pub group_id:Option<String>,pub updated_at:i64,pub config_ids:Vec<String>}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
@@ -28,6 +36,11 @@ pub struct State {
     pub mode: ChainMode,
     /// کلیدِ اصلی: خاموش = هر نشست دقیقاً مثل پیش از این قابلیت اجرا می‌شود.
     pub enabled: bool,
+    pub groups: Vec<Group>,
+    pub membership: BTreeMap<String,String>,
+    pub tab_names: BTreeMap<String,String>,
+    pub hidden_tabs: Vec<String>,
+    pub subscriptions: Vec<Subscription>,
 }
 
 impl Default for State {
@@ -37,11 +50,38 @@ impl Default for State {
             active_id: None,
             mode: ChainMode::Solo,
             enabled: false,
+            groups:Vec::new(),membership:BTreeMap::new(),tab_names:BTreeMap::new(),hidden_tabs:Vec::new(),subscriptions:Vec::new(),
         }
     }
 }
 
 impl State {
+    /// Delete only this tab's owned configs. All is permanent. A family tab
+    /// never owns a config explicitly assigned to a manual group.
+    pub fn delete_tab(mut self, id: &str) -> Self {
+        if id == "all" { return self; }
+        let manual = self.groups.iter().any(|g| g.id == id);
+        let family = id == "format:v2ray" || id == "format:npvt";
+        let sub_ids = self.subscriptions.iter().find(|s| s.id == id)
+            .map(|s| s.config_ids.clone());
+        if !manual && !family && sub_ids.is_none() { return self; }
+        let removed: Vec<String> = self.configs.iter().filter(|c| {
+            if manual { self.membership.get(&c.id).map(String::as_str) == Some(id) }
+            else if family { !self.membership.contains_key(&c.id) &&
+                ((id == "format:npvt") == (c.format == ConfigFormat::Npvt)) }
+            else { sub_ids.as_ref().map(|ids| ids.contains(&c.id)).unwrap_or(false) }
+        }).map(|c| c.id.clone()).collect();
+        for key in removed { self = self.delete(&key); }
+        self.groups.retain(|g| g.id != id);
+        self.membership.retain(|_, group| group != id);
+        self.subscriptions.retain(|sub| sub.id != id &&
+            sub.group_id.as_deref() != Some(id) && !sub.config_ids.is_empty());
+        self.tab_names.remove(id);
+        self.hidden_tabs.retain(|tab| tab != id);
+        self.fix_active();
+        self
+    }
+
     pub fn active(&self) -> Option<&CustomConfig> {
         let id = self.active_id.as_ref()?;
         self.configs.iter().find(|c| &c.id == id)
@@ -77,6 +117,20 @@ impl State {
         self
     }
 
+    /// Validate and assign ownership in the SAME transaction as insertion.
+    /// No transient automatic-family tab or orphan on a deleted destination.
+    pub fn import_into(&self, configs: Vec<CustomConfig>, group: Option<&str>) -> Result<Self, &'static str> {
+        if group.map(|id| !self.groups.iter().any(|g| g.id == id)).unwrap_or(false) {
+            return Err("Destination tab no longer exists");
+        }
+        let incoming = configs.iter().filter(|c| !self.configs.iter().any(|old| old.id == c.id)).count();
+        if self.configs.len() + incoming > MAX_CONFIGS { return Err("Too many configs (maximum 500); nothing imported"); }
+        let ids: Vec<_> = configs.iter().map(|c| c.id.clone()).collect();
+        let mut next = self.clone().add(configs);
+        for id in ids { if let Some(group) = group { next.membership.insert(id, group.into()); } }
+        Ok(next)
+    }
+
     pub fn replace(mut self, config: CustomConfig) -> State {
         for c in self.configs.iter_mut() {
             if c.id == config.id {
@@ -88,6 +142,8 @@ impl State {
 
     pub fn delete(mut self, id: &str) -> State {
         self.configs.retain(|c| c.id != id);
+        self.membership.remove(id);
+        for sub in &mut self.subscriptions {sub.config_ids.retain(|s|s!=id);}
         if self.active_id.as_deref() == Some(id) {
             self.active_id = None;
         }
@@ -167,7 +223,12 @@ pub fn encode(s: &State) -> String {
         })
         .collect();
     let mut o = serde_json::Map::new();
-    o.insert("v".into(), json!(1));
+    o.insert("v".into(), json!(2));
+    o.insert("groups".into(),json!(s.groups));
+    o.insert("membership".into(),json!(s.membership));
+    o.insert("tabNames".into(),json!(s.tab_names));
+    o.insert("hiddenTabs".into(),json!(s.hidden_tabs));
+    o.insert("subscriptions".into(),json!(s.subscriptions));
     if let Some(a) = &s.active_id {
         o.insert("active".into(), json!(a));
     }
@@ -220,6 +281,11 @@ pub fn decode(text: &str) -> Option<State> {
     let active = s(&o, "active").filter(|id| configs.iter().any(|c| &c.id == id));
     let enabled = b(&o, "enabled") && active.is_some();
     Some(State {
+        groups: o.get("groups").cloned().and_then(|v|serde_json::from_value(v).ok()).unwrap_or_default(),
+        membership:o.get("membership").cloned().and_then(|v|serde_json::from_value(v).ok()).unwrap_or_default(),
+        tab_names:o.get("tabNames").cloned().and_then(|v|serde_json::from_value(v).ok()).unwrap_or_default(),
+        hidden_tabs:o.get("hiddenTabs").cloned().and_then(|v|serde_json::from_value(v).ok()).unwrap_or_default(),
+        subscriptions:o.get("subscriptions").cloned().and_then(|v|serde_json::from_value(v).ok()).unwrap_or_default(),
         configs,
         active_id: active,
         mode: ChainMode::from_stored_name(s(&o, "mode").as_deref()),
@@ -290,6 +356,17 @@ pub fn selection() -> Option<CustomSelection> {
     snapshot().selection()
 }
 
+/// مثل [`update`] ولی فقط وقتی تغییر را در حافظه می‌پذیرد که نوشتنِ مهرشده موفق شود
+/// و `change` خودش `Some` بدهد. اسکنر IP تمیز موفقیت را فقط پس از این گزارش می‌کند.
+pub fn update_checked(change: impl FnOnce(&State) -> Option<State>) -> Result<State, String> {
+    let mut g = STORE.lock().map_err(|_| "store unavailable".to_string())?;
+    let disk = g.as_mut().ok_or_else(|| "store not initialised".to_string())?;
+    let next = change(&disk.state).ok_or_else(|| "config changed".to_string())?;
+    write_file(&disk.path, &next)?;
+    disk.state = next.clone();
+    Ok(next)
+}
+
 /// یک تغییر را اعمال و (مهرشده) ذخیره می‌کند.
 pub fn update(change: impl FnOnce(State) -> State) -> State {
     let Ok(mut g) = STORE.lock() else {
@@ -330,6 +407,50 @@ mod tests {
             mobile_only: false,
             added_at: 5,
         }
+    }
+
+    #[test]
+    fn import_target_is_atomic_and_deleted_target_changes_nothing() {
+        let mut s = State::default();
+        s.groups.push(Group {id:"user:manual".into(),name:"Manual".into()});
+        let next=s.import_into(vec![cfg("new")],Some("user:manual")).unwrap();
+        assert_eq!(next.membership.get("new").map(String::as_str),Some("user:manual"));
+        assert!(s.configs.is_empty());
+        assert!(s.import_into(vec![cfg("orphan")],Some("user:deleted")).is_err());
+        assert_eq!(next.clone().delete_tab("format:v2ray"),next);
+    }
+
+    #[test]
+    fn deleting_family_cascades_but_preserves_manual_ownership() {
+        let mut s = State::default().add(vec![cfg("a"), cfg("b")]).set_enabled(true);
+        s.groups.push(Group { id:"user:one".into(), name:"One".into() });
+        s.membership.insert("b".into(), "user:one".into());
+        s.subscriptions.push(Subscription { id:"sub:one".into(), name:"Feed".into(),
+            url:"https://example.invalid/private".into(), group_id:None,
+            updated_at:1, config_ids:vec!["a".into(),"b".into()] });
+        let s = s.delete_tab("format:v2ray");
+        assert_eq!(s.configs.len(),1);
+        assert_eq!(s.configs[0].id,"b");
+        assert_eq!(s.subscriptions[0].config_ids,vec!["b"]);
+        assert!(s.active_id.is_none() && !s.enabled);
+        assert_eq!(decode(&encode(&s)).unwrap(),s);
+        assert_eq!(s.clone().delete_tab("all"),s);
+        assert_eq!(s.clone().delete_tab("missing"),s);
+        assert_eq!(s.clone().delete_tab("format:v2ray"),s);
+    }
+
+    #[test]
+    fn deleting_manual_tab_deletes_its_configs_membership_and_feed() {
+        let mut s = State::default().add(vec![cfg("a"),cfg("outside")]);
+        s.groups.push(Group {id:"user:one".into(),name:"One".into()});
+        s.membership.insert("a".into(),"user:one".into());
+        s.subscriptions.push(Subscription { id:"sub:one".into(),name:"One".into(),
+            url:"https://example.invalid/private".into(),group_id:Some("user:one".into()),
+            updated_at:1,config_ids:vec!["a".into()] });
+        let s = s.delete_tab("user:one");
+        assert!(s.groups.is_empty() && s.membership.is_empty() && s.subscriptions.is_empty());
+        assert_eq!(s.configs.len(),1);
+        assert_eq!(s.configs[0].id,"outside");
     }
 
     #[test]
@@ -403,4 +524,15 @@ mod tests {
         update(|s| s.delete_all());
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+#[cfg(test)] mod catalog_metadata_tests {
+ use super::*;
+ #[test]fn catalog_metadata_roundtrip(){
+  let mut s=State::default();s.groups.push(Group{id:"user:one".into(),name:"آزمایش".into()});
+  s.tab_names.insert("all".into(),"همه".into());
+  s.subscriptions.push(Subscription{id:"sub:one".into(),name:"Fixture".into(),url:"https://example.invalid/private-token".into(),group_id:Some("user:one".into()),updated_at:1,config_ids:vec![]});
+  assert_eq!(decode(&encode(&s)).unwrap(),s);
+ }
+ #[test]fn old_empty_store_defaults_to_no_groups(){let s=decode(r#"{"version":1,"configs":[],"enabled":false,"mode":"SOLO"}"#).unwrap();assert!(s.groups.is_empty()&&s.membership.is_empty()&&s.subscriptions.is_empty());}
 }

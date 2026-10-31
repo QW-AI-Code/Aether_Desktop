@@ -6,10 +6,11 @@ cd "$(dirname "$0")/.."
 GUARD=scripts/check-core-pristine.py
 L=native/aether/aether/src/lib.rs
 T=native/aether/aether/Cargo.toml
-cp "$L" /tmp/p.lib; cp "$T" /tmp/p.toml; cp CORE_VERSION /tmp/p.ver
+cp native/aether/aether/build.rs /tmp/p.build; cp "$L" /tmp/p.lib; cp "$T" /tmp/p.toml; cp CORE_VERSION /tmp/p.ver
 restore() {
   cp /tmp/p.lib "$L"; cp /tmp/p.toml "$T"; cp /tmp/p.ver CORE_VERSION
-  rm -f native/aether/aether/build.rs native/aether/aether/src/app_patch.rs
+  cp /tmp/p.build native/aether/aether/build.rs
+  rm -f native/aether/aether/src/app_patch.rs
 }
 fails=0
 expect_red() {
@@ -26,7 +27,7 @@ python3 "$GUARD" >/dev/null 2>&1 || { echo "✗ guard is red on the clean tree";
 printf '\n// tweak\n' >> "$L";                                   expect_red "a modified core source file"
 printf '// >>> AETHER-APP-PATCH x\nfn main(){}\n' > native/aether/aether/build.rs; expect_red "an app-owned file added to the core"
 echo 'pub fn x() {}' > native/aether/aether/src/app_patch.rs;   expect_red "a new source file in the core"
-sed -i 's/^version = "2.3.0"/version = "2.3.1"/' "$T";           expect_red "a different core version"
+sed -i 's/^version = "2.4.0"/version = "2.4.1"/' "$T";           expect_red "a different core version"
 echo "2.2.0" > CORE_VERSION;                                     expect_red "CORE_VERSION out of step with the core"
 # A deleted source file (not covered by upstream's .gitignore) must still be red.
 cp native/aether/aether/src/cli.rs /tmp/p.cli; rm native/aether/aether/src/cli.rs

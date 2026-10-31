@@ -259,7 +259,7 @@ impl XrayProcess {
     }
 
     pub fn is_alive(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        match self.child.try_wait(){Ok(None)=>true,Ok(Some(status))=>{DiagnosticsLog::w("ChainTrace",&format!("Xray [{}] pid={} exited status={status}",self.tag,self.child.id()));false},Err(_)=>false}
     }
 
     /// شنونده آماده است؟
@@ -273,7 +273,7 @@ impl XrayProcess {
 
     fn shutdown(&mut self) {
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Ok(status)=self.child.wait(){DiagnosticsLog::i("ChainTrace",&format!("Xray [{}] pid={} stopped status={status}",self.tag,self.child.id()));}
         let _ = std::fs::remove_file(&self.config_path);
     }
 }

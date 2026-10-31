@@ -1135,6 +1135,7 @@ fn serve_udp_associate(
         let client_peer = client_peer.clone();
         std::thread::spawn(move || {
             let mut buf = vec![0u8; MAX_UDP_DATAGRAM];
+            let governor=crate::uplink::current();let mut flow=crate::uplink_policy::Flow::default();
             while !stop.load(Ordering::Relaxed) {
                 let (n, from) = match cs_up.recv_from(&mut buf) {
                     Ok(v) => v,
@@ -1177,6 +1178,7 @@ fn serve_udp_associate(
                          its WebRTC address is the exit, not this line.",
                     );
                 }
+                if let Some(s)=governor.as_ref(){if !s.acquire(&mut flow,n,false){break;}}
                 if us_up.send_to(data, upstream_relay).is_ok() {
                     tx.fetch_add(n as u64, Ordering::Relaxed);
                 }
@@ -1923,8 +1925,10 @@ fn relay(client: TcpStream, upstream: TcpStream, rx: Arc<AtomicU64>, tx: Arc<Ato
         Ok(u) => u,
         Err(_) => return,
     };
-    let up = std::thread::spawn(move || copy_counted(client, upstream, tx));
-    copy_counted(upstream2, client2, rx);
+    // Only the finished Psiphon route is shaped. Direct/split/LAN traffic is not.
+    let governor=upstream.peer_addr().ok().filter(|p|p.ip().is_loopback()&&p.port()==crate::engine::exit_socks_port()).and_then(|_|crate::uplink::current());
+    let up = std::thread::spawn(move || copy_counted(client, upstream, tx, governor));
+    copy_counted(upstream2, client2, rx, None);
     let _ = up.join();
 }
 
@@ -1938,16 +1942,20 @@ fn relay(client: TcpStream, upstream: TcpStream, rx: Arc<AtomicU64>, tx: Arc<Ato
 /// direction rather than living on the thread stack.
 const RELAY_BUF_BYTES: usize = 64 * 1024;
 
-fn copy_counted(mut from: TcpStream, mut to: TcpStream, counter: Arc<AtomicU64>) {
+fn copy_counted(mut from: TcpStream, mut to: TcpStream, counter: Arc<AtomicU64>, governor:Option<Arc<crate::uplink_policy::Shaper>>) {
+    let mut flow=crate::uplink_policy::Flow::default();
+    let _tracked=if let Some(s)=governor.as_ref(){match(s.cancel.track(&from),s.cancel.track(&to)){(Ok(a),Ok(b))=>Some((a,b)),_=>return}}else{None};
     let mut buf = vec![0u8; RELAY_BUF_BYTES];
-    loop {
+    'copy: loop {
         match from.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                if to.write_all(&buf[..n]).is_err() {
-                    break;
+                let slice=governor.as_ref().filter(|s|s.rate().is_finite()).map(|_|crate::uplink_policy::SLICE).unwrap_or(n);
+                for chunk in buf[..n].chunks(slice){
+                    if let Some(s)=governor.as_ref(){if !s.acquire(&mut flow,chunk.len(),false){break 'copy;}}
+                    if to.write_all(chunk).is_err(){break 'copy;}
+                    counter.fetch_add(chunk.len() as u64,Ordering::Relaxed);
                 }
-                counter.fetch_add(n as u64, Ordering::Relaxed);
             }
             Err(ref e) if e.kind() == ErrorKind::Interrupted => continue,
             Err(_) => break,

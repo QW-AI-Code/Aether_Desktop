@@ -504,3 +504,23 @@ mod tests {
         assert!(!suspect(1500, 900));
     }
 }
+
+/// A governor owns this connection; it never mutates the home-screen ping cell.
+#[derive(Default)]
+pub struct UplinkProbe { warm:Option<Warm>, tracked:Option<crate::custom::cancel::Tracked> }
+impl UplinkProbe {
+    pub fn measure(&mut self,port:u16,cancel:&std::sync::Arc<crate::custom::cancel::Cancel>)->Option<u64>{
+        if cancel.stopped(){return None;}
+        if let Some(w)=self.warm.as_mut(){if let Some(rtt)=round_trip(w){return Some(rtt);}}
+        self.warm=None;self.tracked=None;
+        for t in TARGETS.iter().filter(|t|t.tls){
+            if cancel.stopped(){break;}
+            let Some((plain,track))=probe::socks5_stream_cancelled(port,t.host,t.port,TIMEOUT,cancel)else{continue;};
+            let _=plain.set_nodelay(true);
+            let Some(connector)=native_tls::TlsConnector::builder().build().ok()else{continue;};
+            let Ok(tls)=connector.connect(t.tls_name,plain)else{continue;};
+            let mut warm=Warm{io:Box::new(tls),host:t.host,name:t.tls_name,port:t.port};
+            if let Some(first)=round_trip(&mut warm){let confirm=round_trip(&mut warm);let rtt=confirm.map(|n|n.min(first)).unwrap_or(first);self.warm=Some(warm);self.tracked=Some(track);return Some(rtt);}
+        }None
+    }
+}

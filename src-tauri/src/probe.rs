@@ -34,6 +34,8 @@ pub struct EgressResult {
 pub struct IpInfo {
     pub ip: String,
     pub country_code: Option<String>,
+    #[serde(default)]
+    pub alternate_ip: Option<String>,
 }
 
 /// یک فراهم‌کنندهٔ جای‌یابی — معادل `GeoProvider` اندروید.
@@ -157,8 +159,10 @@ pub fn socks5_stream_on(
     dest_port: u16,
     timeout: Duration,
 ) -> Option<TcpStream> {
-    let mut s = socks5_greeting_on(proxy_port, timeout)?;
+    socks5_connect_stream(socks5_greeting_on(proxy_port, timeout)?, dest_host, dest_port)
+}
 
+fn socks5_connect_stream(mut s: TcpStream, dest_host: &str, dest_port: u16) -> Option<TcpStream> {
     let mut req: Vec<u8> = vec![0x05, 0x01, 0x00];
     if let Ok(v4) = dest_host.parse::<std::net::Ipv4Addr>() {
         req.push(0x01);
@@ -287,26 +291,37 @@ pub fn fetch_ip_direct(timeout_ms: u64) -> Option<IpInfo> {
 }
 
 /// IP خروجی/سرور (از داخل پروکسی SOCKS5) — معادل `fetchIpInfoViaSocks`.
-pub fn fetch_ip_via_socks(timeout_ms: u64) -> Option<IpInfo> {
-    let timeout = Duration::from_millis(timeout_ms);
+pub fn fetch_ip_via_socks(timeout_ms:u64)->Option<IpInfo> {
+    fetch_ip_via_socks_enriched(timeout_ms,crate::engine::exit_socks_port(), |_|{})
+}
+
+/// Bounded parallel race. Give IPv4 1.2 s after an IPv6 result, never wait indefinitely.
+/// Callback is invoked synchronously with the selected IP BEFORE slow country enrichment.
+pub fn fetch_ip_via_socks_enriched(timeout_ms:u64,port:u16,mut publish:impl FnMut(&IpInfo))->Option<IpInfo> {
+    use std::sync::mpsc;
+    let (tx,rx)=mpsc::channel();let timeout=Duration::from_millis(timeout_ms);
+    // The literal endpoint cannot resolve to IPv6. It is the IPv4-priority lane.
     for p in &GEO_PROVIDERS {
-        // `socks5_stream` خودش تشخیص می‌دهد که مقصد IP است یا نام و ATYP را
-        // همان‌طور می‌فرستد — معادلِ `hostIsDomain` اندروید، بدون فیلد اضافه.
-        let got = if p.tls {
-            socks5_stream(p.dial, p.port, timeout)
-                .and_then(|s| tls_get(s, p.verify_as, p.path))
-                .and_then(|body| parse_ip_info(&body))
-        } else {
-            socks5_stream(p.dial, p.port, timeout)
-                .and_then(|mut s| http_get(&mut s, p.verify_as, p.path))
-                .and_then(|body| parse_ip_info(&body))
-        };
-        match got {
-            Some(info) => return Some(refine_country(info, p.dial, true, timeout_ms)),
-            None => DiagnosticsLog::d("netprobe", &format!("proxied geo {} failed", p.dial)),
+        let tx=tx.clone();let dial=p.dial;let verify=p.verify_as;let path=p.path;let dport=p.port;
+        std::thread::spawn(move|| {
+            let r=socks5_stream_on(port,dial,dport,timeout).and_then(|s|tls_get(s,verify,path)).and_then(|b|parse_ip_info(&b));
+            let _=tx.send(r);
+        });
+    }
+    drop(tx);let deadline=std::time::Instant::now()+timeout+IO_TIMEOUT;
+    let mut until=deadline;let mut first_v6=None;let mut chosen=None;let mut alternate=None;
+    while let Ok(result)=rx.recv_timeout(until.saturating_duration_since(std::time::Instant::now())) {
+        if let Some(info)=result {
+            if info.ip.parse::<std::net::IpAddr>().ok()?.is_ipv4() {
+                alternate=first_v6.as_ref().map(|i:&IpInfo|i.ip.clone());chosen=Some(info);break;
+            }
+            if first_v6.is_none() {first_v6=Some(info);until=deadline.min(std::time::Instant::now()+Duration::from_millis(1200));}
         }
     }
-    None
+    let mut selected=chosen.or(first_v6)?;selected.alternate_ip=alternate;
+    publish(&selected);
+    let refined=refine_country_on(selected,"race",true,timeout_ms,port);
+    publish(&refined);Some(refined)
 }
 
 /// معادل `fetchIpInfoDirectWithRetry` — شبکهٔ اپراتور بدقلق را دور می‌زند.
@@ -358,14 +373,10 @@ pub fn fetch_ip_via_socks_retry(attempts: u32, delay_ms: u64, timeout_ms: u64) -
 /// کلودفلر در `loc=` چند کدِ شبهٔ‌کشور هم می‌دهد که هیچ جایی روی نقشه
 /// نیستند: `T1` برای خروجیِ تور، `A1` پراکسیِ ناشناس، `A2` ماهواره‌ای،
 /// `O1` دیگر، و `XX`/`ZZ` نامعلوم.
-fn is_real_country(code: &str) -> bool {
-    const PSEUDO: [&str; 5] = ["T1", "A1", "A2", "O1", "XX"];
-    let code = code.trim();
-    if code.len() != 2 || !code.chars().all(|c| c.is_ascii_alphabetic()) {
-        return false;
-    }
-    let upper = code.to_ascii_uppercase();
-    !PSEUDO.contains(&upper.as_str()) && upper != "ZZ"
+pub fn is_real_country(code: &str) -> bool {
+    const ISO: &str = "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW";
+    let cc=code.trim().to_ascii_uppercase();
+    cc.len()==2 && ISO.split_ascii_whitespace().any(|c|c==cc)
 }
 
 fn should_refine_country(country_known: bool, via_socks: bool) -> bool {
@@ -374,6 +385,9 @@ fn should_refine_country(country_known: bool, via_socks: bool) -> bool {
 
 /// معادل `refineCountry` در اندروید — با محدودیتِ بالا.
 fn refine_country(info: IpInfo, provider_host: &str, via_socks: bool, timeout_ms: u64) -> IpInfo {
+    refine_country_on(info,provider_host,via_socks,timeout_ms,crate::engine::exit_socks_port())
+}
+fn refine_country_on(info:IpInfo,provider_host:&str,via_socks:bool,timeout_ms:u64,port:u16)->IpInfo {
     if provider_host == "ip-api.com" {
         return info;
     }
@@ -401,6 +415,7 @@ fn refine_country(info: IpInfo, provider_host: &str, via_socks: bool, timeout_ms
                 );
                 return IpInfo {
                     ip: info.ip,
+                    alternate_ip: info.alternate_ip,
                     country_code: Some(code),
                 };
             }
@@ -411,12 +426,13 @@ fn refine_country(info: IpInfo, provider_host: &str, via_socks: bool, timeout_ms
     // «فراخوانده نمی‌شود»: تا وقتی یک شاخهٔ `connect_direct_ipv4` در این تابع
     // باشد، تضمینِ «بی‌رمز از سیمِ کاربر رد نمی‌شود» به درستیِ شرطِ بالا و به
     // هر صداکنندهٔ آیندهٔ این تابع وابسته می‌ماند. با نبودنش، ساختاری است.
-    let body = socks5_stream("ip-api.com", 80, Duration::from_millis(timeout_ms))
+    let body = socks5_stream_on(port,"ip-api.com", 80, Duration::from_millis(timeout_ms))
         .and_then(|mut s| http_get(&mut s, "ip-api.com", &path));
     if let Some(cc) = body.and_then(|b| json_str(&b, "countryCode")) {
         if is_real_country(&cc) {
             return IpInfo {
                 ip: info.ip,
+                alternate_ip: info.alternate_ip,
                 country_code: Some(cc.to_ascii_uppercase()),
             };
         }
@@ -756,11 +772,12 @@ fn tls_get(stream: TcpStream, host: &str, path: &str) -> Option<String> {
 fn parse_ip_info(response: &str) -> Option<IpInfo> {
     let body = response.split("\r\n\r\n").nth(1).unwrap_or("");
     // قالب ۱: JSONِ ip-api  {"query":"1.2.3.4","countryCode":"DE"}
-    if let Some(ip) = json_str(body, "query") {
+    if let Some(ip) = json_str(body, "query").filter(|s|s.parse::<std::net::IpAddr>().is_ok()) {
         let cc = json_str(body, "countryCode").filter(|cc| is_real_country(cc));
         return Some(IpInfo {
             ip,
-            country_code: cc,
+            alternate_ip: None,
+            country_code: cc.map(|c|c.to_ascii_uppercase()),
         });
     }
     // قالب ۲: خطوط key=value در /cdn-cgi/trace
@@ -769,7 +786,7 @@ fn parse_ip_info(response: &str) -> Option<IpInfo> {
     for line in body.lines() {
         let line = line.trim();
         if let Some(v) = line.strip_prefix("ip=") {
-            ip = Some(v.trim().to_string());
+            ip = v.trim().parse::<std::net::IpAddr>().ok().map(|a|a.to_string());
         } else if let Some(v) = line.strip_prefix("loc=") {
             let v = v.trim();
             // >>> AETHER-APP-PATCH a-pseudo-country-is-not-a-country
@@ -787,6 +804,7 @@ fn parse_ip_info(response: &str) -> Option<IpInfo> {
     }
     ip.map(|ip| IpInfo {
         ip,
+        alternate_ip: None,
         country_code: loc,
     })
 }
@@ -1200,4 +1218,15 @@ mod f5_tests {
         // ناشناخته و از داخل تونل: آنجا اشکالی ندارد.
         assert!(should_refine_country(false, true));
     }
+}
+
+/// Cancellable warm-probe dial. Track before ANY SOCKS/TLS blocking operation.
+pub fn socks5_stream_cancelled(port:u16, host:&str, target_port:u16, timeout:Duration, cancel:&std::sync::Arc<crate::custom::cancel::Cancel>) -> Option<(TcpStream,crate::custom::cancel::Tracked)> {
+    if cancel.stopped(){return None;}
+    let mut socket=TcpStream::connect_timeout(&SocketAddr::from(([127,0,0,1],port)),timeout.min(Duration::from_secs(1))).ok()?;
+    let tracked=cancel.track(&socket).ok()?;
+    socket.set_read_timeout(Some(timeout)).ok()?;socket.set_write_timeout(Some(timeout)).ok()?;
+    socket.write_all(&[5,1,0]).ok()?;let mut greeting=[0;2];socket.read_exact(&mut greeting).ok()?;
+    if greeting!=[5,0]{return None;}
+    Some((socks5_connect_stream(socket,host,target_port)?,tracked))
 }

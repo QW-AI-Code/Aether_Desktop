@@ -1,34 +1,38 @@
 // >>> AETHER-APP-PATCH build-provenance
-//! Compile-time build provenance for the engine — Windows-Port von
-//! `native/aether/aether/build.rs` im Android-Repo.
+//! Compile-time build provenance for the engine.
 //!
-//! ## Warum diese Datei existiert
+//! ## Why this file exists (1.2.8-r5)
 //!
-//! Der Engine-Banner druckt nur die UPSTREAM-Kernversion (`Aether v2.0.0`), und
-//! die ist in jedem Patch-Stand identisch. Auf Android hat das eine ganze
-//! Analyse-Runde gekostet: Fünf voneinander unabhängige Log-Zeilen bewiesen
-//! hinterher, dass das getestete Binary den Fix unter Test überhaupt nicht
-//! enthielt. Niemand konnte zwei Revisionen auseinanderhalten.
+//! Rounds r2, r3 and r4 all shipped as `versionName "1.2.8"`, `versionCode 12`,
+//! and the engine banner only ever printed the UPSTREAM core version
+//! (`Aether v1.8.0`), which is identical in every one of them. Nothing in the
+//! app, in the log, or on the release page could tell two revisions apart.
 //!
-//! Also stempelt die Engine ab jetzt auch auf dem Desktop den PATCH-STAND DER
-//! APP zur Compile-Zeit ins Binary. `AETHER-BUILD-STAMP:` ist ein einziges
-//! zusammenhängendes Literal, damit ein `findstr`/`grep -a` es in der
-//! gestrippten `aether.exe` findet; CI prüft es im gepackten Payload, und die
-//! App vergleicht ihren eigenen Stand zur Laufzeit gegen den, den die Engine
-//! meldet.
+//! That is how the r4 field test came back as "nothing changed": the log proves,
+//! by five independent strings, that the APK under test was still the r3 build.
+//! The engine printed r3's `netstack buffers=512KB/128KB` line, the r4 netstack
+//! telemetry never appeared, the ping probe failed with r3's wording, and 260
+//! `updated server` notices arrived unsuppressed by r4's filter. Five rounds of
+//! analysis were spent on a binary nobody could identify.
 //!
-//! Netto: Die ersten Zeilen jedes künftigen Logs sagen genau, welcher Build ihn
-//! erzeugt hat. Eine veraltete Engine lässt sich nicht mehr unbemerkt ausliefern
-//! und nicht mehr versehentlich testen.
+//! From r5 the engine stamps the APP patch level into the binary at compile
+//! time. `scripts/build-natives.sh` greps the finished `libaether.so` for the
+//! exact string and fails the build if it is missing, CI asserts it again inside
+//! the packaged APK, and the app compares its own patch level against the one
+//! the engine reports on stdout and shouts if they differ.
+//!
+//! Net effect: the first two lines of every future log say precisely which build
+//! produced it. A stale engine is now impossible to ship and impossible to test
+//! by accident.
 
 use std::path::{Path, PathBuf};
 
-/// Läuft vom Crate-Verzeichnis aufwärts und sucht die `PATCHLEVEL`-Datei der
-/// Repo-Wurzel.
+/// Walks up from the crate dir looking for the repo-root `PATCHLEVEL` file.
 ///
-/// Der Crate wird sowohl aus `native/aether/aether` im Baum als auch aus einer
-/// von CI heruntergeladenen Kopie gebaut, die Tiefe ist also nicht fest.
-/// `APP_PATCHLEVEL` aus der Umgebung gewinnt immer — das ist, was CI setzt.
+/// The crate is compiled out of `.native/aether/aether` (a copy made by
+/// `fetch-natives.sh`) as well as from `native/aether/aether` in-tree, so the
+/// depth is not fixed. `APP_PATCHLEVEL` in the environment always wins, which is
+/// what CI sets.
 fn discover_patchlevel() -> String {
     if let Ok(v) = std::env::var("APP_PATCHLEVEL") {
         let v = v.trim().to_string();
@@ -54,18 +58,20 @@ fn discover_patchlevel() -> String {
         }
     }
 
-    // Niemals stillschweigend eine Version erfinden. "unstamped" ist ein
-    // lautes, greppbares Ergebnis, und die App behandelt es als harte Warnung.
+    // Never silently invent a version. "unstamped" is a loud, greppable value
+    // and the app treats it as a hard warning.
     "unstamped".to_string()
 }
 
 fn main() {
     let patchlevel = discover_patchlevel();
 
-    // Die Marke ist ein einziges zusammenhängendes Literal, damit `grep -a` auf
-    // der gestrippten Binärdatei sie findet. Nicht umformatieren.
+    // The marker is a single contiguous literal so `grep -a` on the stripped
+    // .so finds it. Do not reformat it.
     println!("cargo:rustc-env=AETHER_APP_PATCHLEVEL={patchlevel}");
-    println!("cargo:rustc-env=AETHER_BUILD_STAMP=AETHER-BUILD-STAMP:{patchlevel}");
+    println!(
+        "cargo:rustc-env=AETHER_BUILD_STAMP=AETHER-BUILD-STAMP:{patchlevel}"
+    );
 
     println!("cargo:rerun-if-env-changed=APP_PATCHLEVEL");
     println!("cargo:rerun-if-changed=../../../PATCHLEVEL");

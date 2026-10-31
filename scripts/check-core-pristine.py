@@ -1,18 +1,10 @@
 #!/usr/bin/env python3
-"""Guard: the vendored Aether core is the unmodified upstream source.
-
-Since 1.3.0 the Windows edition carries Aether core 2.3.0 exactly as released
-(Aether-main v2.3.0) and does all of its wiring on the app side (src-tauri).
-This guard fails when:
-
-  * any file under native/aether differs from UPSTREAM-SHA256SUMS,
-  * a file was added to or removed from the vendored tree,
-  * an app-side patch marker (AETHER-APP-PATCH) shows up in the core,
-  * CORE_VERSION (root and native/aether) and the core Cargo version disagree.
-
-After a deliberate core upgrade, regenerate the manifest with:
-    python3 scripts/check-core-pristine.py --update
+"""Verify the immutable upstream 2.4.0 baseline plus explicit 1.4.0 mobile ports.
+Every changed/added file requires matching original AND delivered hashes in
+CORE_PORT_PATCHES.json. Unrecorded drift, deletions and version drift fail.
+--update is forbidden while the overlay is active; rebases are deliberate.
 """
+import json
 import fnmatch
 import hashlib
 import pathlib
@@ -80,6 +72,9 @@ def main() -> int:
         return 1
     current = tree()
     if "--update" in sys.argv:
+        if (ROOT / "CORE_PORT_PATCHES.json").exists():
+            print("Refusing to overwrite upstream baseline while a reviewed overlay is active. Explicit rebase required.")
+            return 1
         old_links = [
             l for l in (MANIFEST.read_text(encoding="utf-8").splitlines() if MANIFEST.is_file() else [])
             if l.startswith("# symlink ")
@@ -109,6 +104,15 @@ def main() -> int:
             expected[name.strip()] = digest
     current = {k: v for k, v in current.items() if k not in links}
 
+    overlay_file=ROOT / "CORE_PORT_PATCHES.json"
+    overlay={r["path"]:r for r in json.loads(overlay_file.read_text())["records"]} if overlay_file.is_file() else {}
+    for name,r in overlay.items():
+        key="./"+name if "./"+name in expected or "./"+name in current else name
+        if expected.get(key)!=r["upstream_sha256"] or current.get(key)!=r["ported_sha256"]:
+            errors.append(f"reviewed core overlay mismatch: {name}")
+    def reviewed(name):
+        r=overlay.get(name.removeprefix("./"))
+        return r is not None and current.get(name)==r["ported_sha256"]
     tolerated = []
     for name in sorted(set(expected) - set(current)):
         if git_cannot_carry(name):
@@ -116,14 +120,14 @@ def main() -> int:
         else:
             errors.append(f"removed from the core: {name}")
     for name in sorted(set(current) - set(expected)):
-        errors.append(f"not part of upstream: {name}")
+        if not reviewed(name): errors.append(f"not part of upstream: {name}")
     for name in sorted(set(current) & set(expected)):
-        if current[name] != expected[name]:
+        if current[name] != expected[name] and not reviewed(name):
             errors.append(f"modified: {name}")
 
     for p in (CORE / "aether").rglob("*"):
         if p.is_file() and p.suffix in {".rs", ".toml"} and "target" not in p.parts:
-            if "AETHER-APP-PATCH" in p.read_text(encoding="utf-8", errors="replace"):
+            if "AETHER-APP-PATCH" in p.read_text(encoding="utf-8", errors="replace") and p.relative_to(CORE).as_posix() not in overlay:
                 errors.append(f"app patch marker inside the core: {p.relative_to(ROOT)}")
 
     root_ver = (ROOT / "CORE_VERSION").read_text(encoding="utf-8").strip()
@@ -138,7 +142,7 @@ def main() -> int:
         )
 
     if errors:
-        print("✗ the vendored core is not the unmodified upstream source:")
+        print("✗ the vendored core differs from upstream plus its reviewed overlay:")
         for e in errors[:40]:
             print(f"   - {e}")
         if len(errors) > 40:
@@ -146,7 +150,7 @@ def main() -> int:
         return 1
     for name in tolerated:
         print(f"  ~ absent but ignored by upstream's .gitignore (not in a git checkout): {name}")
-    print(f"✓ core {cargo_ver} is the unmodified upstream source ({len(current)} files match UPSTREAM-SHA256SUMS)")
+    print(f"✓ core {cargo_ver} matches the upstream baseline plus reviewed overlay ({len(current)} files; {len(overlay)} reviewed ports)")
     return 0
 
 

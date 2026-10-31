@@ -1,13 +1,14 @@
 // =============================================================================
-//  Aether Desktop — پوستهٔ کاربری
+//  Aether Windows — پوستهٔ کاربری (۱.۴.۰-mobile: قاب موبایلی ۳۹۰×۸۲۰)
 //  پورت یک‌به‌یک از ui/ مخزن اندروید (Jetpack Compose → DOM).
 // =============================================================================
+import { onConnectionState } from './ui/feedback.js'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 
 import { renderHome } from './views/home.js'
-import { renderSettings } from './views/settings.js'
+import { renderSettings, renderTunnelSettings } from './views/settings.js'
 import { renderAssistant } from './views/assistant.js'
 import { renderChat } from './views/chat.js'
 import { renderDiagnostics } from './views/diagnostics.js'
@@ -20,6 +21,7 @@ import { initAi, refreshAi } from './ai.js'
 import { maybeShowWhatsNew } from './ui/whatsnew.js'
 import { setTabRouter } from './ui/nav.js'
 import { syncLoginCode } from './ui/logincode.js'
+import { icon } from './ui/icons.js'
 
 // --- وضعیت سراسری ------------------------------------------------------
 export const app = {
@@ -119,6 +121,7 @@ export function applyProfileSnapshot(profile) {
 }
 
 export async function toggleConnection() {
+  if (!app.profile) return
   try {
     await invoke('toggle_connection')
   } catch (e) {
@@ -129,9 +132,9 @@ export async function toggleConnection() {
 
 // --- رنگ حالت — دقیقاً همان قانون ConnectButton.kt --------------------
 export function accentFor(state) {
-  if (state === 'CONNECTED') return '#32E0C4'
+  if (state === 'CONNECTED') return '#3EDBB0'
   if (state === 'FAILED') return '#FF5C7A'
-  return '#4C8DFF'
+  return '#5B93FF'
 }
 
 // --- متن حالت — همان رشته‌های strings.xml -----------------------------
@@ -161,78 +164,100 @@ export function formatUptime(secs) {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 }
 
-// --- نوار عنوان سفارشی (decorations: false) ---------------------------
-// رفع ریشه‌ای آیکون‌های خراب (مربع): آیکون‌های قبلی گلیف فونت
-// «Segoe MDL2 Assets» در index.html بودند که بدون آن فونت به‌صورت مربع
-// رندر می‌شدند. حالا هر سه آیکون SVG داخلی هستند و همین‌جا در زمان
-// اجرا داخل دکمه‌ها تزریق می‌شوند؛ یعنی منبع آیکون‌ها فقط همین باندل
-// جاوااسکریپت است و حتی با index.html قدیمی هم درست رندر می‌شوند.
-const ICON_MINIMIZE =
-  '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 5h10" stroke="currentColor" stroke-width="1" fill="none"/></svg>'
-const ICON_MAXIMIZE =
-  '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>'
-const ICON_RESTORE =
-  '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M2.5 2.5V0.5h7v7h-2" fill="none" stroke="currentColor" stroke-width="1"/><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/></svg>'
-const ICON_CLOSE =
-  '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1.1" fill="none"/></svg>'
+// --- نوار ۲۸ پیکسلی ویندوز (decorations: false) ------------------------
+// ۱.۴.۰-mobile: فقط کمینه و بستن. بیشینه‌سازی حذف شد — پنجره قاب موبایلی است
+// (`maximizable: false` در tauri.conf.json هم Win+↑ را می‌بندد).
+const ICON_MINIMIZE = icon('minimize', 12)
+const ICON_CLOSE = icon('close', 12)
 
-// v9: Material-style outline icons for the permanent navigation rail.
+// ۱.۴.۰-ui: Material Rounded، یکسان با نسخهٔ موبایل
 const NAV_ICONS = {
-  home: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg>',
-  advanced: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h8M18 7h2M4 17h2M10 17h10"/><circle cx="15" cy="7" r="2.4"/><circle cx="7" cy="17" r="2.4"/></svg>',
-  assistant: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3.2l2 5.4 5.4 2-5.4 2-2 5.4-2-5.4-5.4-2 5.4-2z" fill="currentColor"/><path d="M18.7 15.3l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z" fill="currentColor" opacity=".6"/></svg>',
-  chat: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H9.5L5 20v-4"/><path d="M8.5 10h7"/><path d="M8.5 13h4"/></svg>',
-  diagnostics: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2.5-6 5 12 2.5-6h4"/></svg>',
-  share: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.5 12a10.5 10.5 0 0 1 15 0"/><path d="M7.8 15.2a6 6 0 0 1 8.4 0"/><circle cx="12" cy="18.6" r="1.5" fill="currentColor" stroke="none"/></svg>',
-  about: '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5"/><circle cx="12" cy="7.8" r="1" fill="currentColor" stroke="none"/></svg>',
+  home: icon('home'),
+  advanced: icon('settings'),
+  assistant: icon('assistant'),
+  chat: icon('chat'),
+  diagnostics: icon('bug_report'),
+  share: icon('wifi'),
+  about: icon('info'),
 }
 
-async function refreshMaximizeButton(win, btn) {
-  if (!btn) return
-  try {
-    const maximized = await win.isMaximized()
-    btn.innerHTML = maximized ? ICON_RESTORE : ICON_MAXIMIZE
-    btn.setAttribute('aria-label', maximized ? 'Restore' : 'Maximize')
-    btn.title = maximized ? 'Restore' : 'Maximize'
-  } catch {
-    btn.innerHTML = ICON_MAXIMIZE
+function wireWinbar() {
+  const win = getCurrentWindow()
+  const minBtn = document.querySelector('.twin--min')
+  const closeBtn = document.querySelector('.twin--close')
+  if (minBtn) minBtn.innerHTML = ICON_MINIMIZE
+  if (closeBtn) closeBtn.innerHTML = ICON_CLOSE
+  const bar = document.querySelector('.winbar')
+  bar?.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || e.target.closest('.twin')) return
+    win.startDragging()
+  })
+  // دابل‌کلیک دیگر بزرگ نمی‌کند — فقط جلویش گرفته می‌شود.
+  bar?.addEventListener('dblclick', (e) => e.preventDefault())
+  minBtn?.addEventListener('click', () => win.minimize())
+  closeBtn?.addEventListener('click', () => win.close())
+}
+
+// --- کشوی ناوبری ---------------------------------------------------------
+function drawerEls() {
+  return {
+    drawer: document.getElementById('drawer'),
+    backdrop: document.getElementById('drawer-backdrop'),
+    menuBtn: document.getElementById('menu-btn'),
   }
 }
 
-function wireTitlebar() {
-  const win = getCurrentWindow()
-  const minBtn = document.querySelector('.twin--min')
-  const maxBtn = document.querySelector('.twin--max')
-  const closeBtn = document.querySelector('.twin--close')
+export function isDrawerOpen() {
+  return document.getElementById('drawer')?.classList.contains('is-open') ?? false
+}
 
-  // تزریق آیکون‌ها — جایگزین هر محتوای قبلی (از جمله گلیف فونت خراب).
-  if (minBtn) minBtn.innerHTML = ICON_MINIMIZE
-  if (closeBtn) closeBtn.innerHTML = ICON_CLOSE
-  refreshMaximizeButton(win, maxBtn)
+export function openDrawer() {
+  const { drawer, backdrop, menuBtn } = drawerEls()
+  if (!drawer) return
+  drawer.classList.add('is-open')
+  drawer.setAttribute('aria-hidden', 'false')
+  if (backdrop) { backdrop.hidden = false; backdrop.classList.add('is-open') }
+  menuBtn?.setAttribute('aria-expanded', 'true')
+  document.body.classList.add('drawer-open')
+  drawer.querySelector('.drawer__item.is-active, .drawer__item')?.focus?.()
+}
 
-  document.querySelector('.titlebar')?.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.twin')) return
-    win.startDragging()
-  })
-  // دقیقاً مثل ویندوز: دابل‌کلیک روی نوار عنوان هم بزرگ/کوچک می‌کند.
-  document.querySelector('.titlebar')?.addEventListener('dblclick', async (e) => {
-    if (e.target.closest('.twin')) return
-    await win.toggleMaximize()
-    refreshMaximizeButton(win, maxBtn)
-  })
-  minBtn?.addEventListener('click', () => win.minimize())
-  maxBtn?.addEventListener('click', async () => {
-    await win.toggleMaximize()
-    refreshMaximizeButton(win, maxBtn)
-  })
-  closeBtn?.addEventListener('click', () => win.close())
-  win.onResized(() => refreshMaximizeButton(win, maxBtn))
+export function closeDrawer() {
+  const { drawer, backdrop, menuBtn } = drawerEls()
+  if (!drawer) return
+  drawer.classList.remove('is-open')
+  drawer.setAttribute('aria-hidden', 'true')
+  if (backdrop) { backdrop.classList.remove('is-open'); backdrop.hidden = true }
+  menuBtn?.setAttribute('aria-expanded', 'false')
+  document.body.classList.remove('drawer-open')
+}
+
+export function toggleDrawer() {
+  if (isDrawerOpen()) closeDrawer()
+  else openDrawer()
+}
+
+function wireDrawer() {
+  const { drawer, backdrop, menuBtn } = drawerEls()
+  menuBtn?.addEventListener('click', toggleDrawer)
+  backdrop?.addEventListener('click', closeDrawer)
+  for (const b of drawer?.querySelectorAll('.drawer__item') ?? []) {
+    b.addEventListener('click', () => {
+      closeDrawer()
+      showTab(b.dataset.tab)
+    })
+  }
+  for (const b of document.querySelectorAll('.mobile-header__action')) {
+    b.addEventListener('click', () => showTab(b.dataset.tab))
+  }
+  document.getElementById('back-btn')?.addEventListener('click', () => goBack())
 }
 
 // --- مسیریابی تب‌ها (در اندروید باتم‌شیت بود، در دسکتاپ ریل کناری) --
 const VIEWS = {
   home: renderHome,
   advanced: renderSettings,
+  tunnel: renderTunnelSettings,
   assistant: renderAssistant,
   chat: renderChat,
   diagnostics: renderDiagnostics,
@@ -267,9 +292,11 @@ function renderTab() {
   host.replaceChildren(node)
   mounted = node
   node.__onShow?.()
-  for (const b of document.querySelectorAll('.rail__item')) {
+  for (const b of document.querySelectorAll('.drawer__item')) {
     b.classList.toggle('is-active', b.dataset.tab === app.tab)
   }
+  document.body.dataset.tab = app.tab
+  syncHeader()
   // v14 — یک آپدیت را که وقتی این تب پنهان بود از دست رفت، همین‌جا برمی‌گردانیم.
   //
   // `emit()` هر listenerی را که مالکش هنوز `isConnected` نیست رد می‌کند —
@@ -305,7 +332,7 @@ export function refreshTab(tab = app.tab) {
 /// panel showing the OLD value for the rest of the session. The hub row updated
 /// (it has an `onChange`), so the row said one thing and the control under it
 /// said another.
-const PROFILE_TABS = ['advanced']
+const PROFILE_TABS = ['advanced', 'tunnel', 'share']
 
 /// A rebuild pending because the user is typing. See [`dropProfileViews`].
 let profileTabStale = false
@@ -336,9 +363,24 @@ function dropProfileViews() {
   }
 }
 
-/// Switches tab. The rail and the jsdom harness go through here, so the cache
-/// invalidation cannot be true on one path and false on the other.
-export function showTab(tab) {
+/// Switches tab. The drawer, the header shortcuts and the jsdom harness go
+/// through here, so the cache invalidation cannot be true on one path and
+/// false on the other.
+///
+/// ۱.۴.۰-mobile — ناوبری پشته‌ای: هر تبِ غیر از خانه یک زیرصفحهٔ تمام‌صفحه است
+/// که روی پشته می‌نشیند؛ «بازگشت»، Esc و Alt+Left آن را برمی‌دارند. خانه همیشه
+/// کفِ پشته است و خودش هرگز دکمهٔ بازگشت ندارد.
+export const navStack = []
+
+export function showTab(tab, { push = true } = {}) {
+  if (!(tab in VIEWS)) return
+  if (!app.profile && tab !== 'home') return
+  if (tab === 'home') navStack.length = 0
+  else if (push && app.tab !== tab) {
+    const i = navStack.indexOf(app.tab)
+    if (i >= 0) navStack.length = i
+    if (app.tab !== 'home') navStack.push(app.tab)
+  }
   app.tab = tab
   if (profileTabStale && PROFILE_TABS.includes(tab)) {
     profileTabStale = false
@@ -348,30 +390,89 @@ export function showTab(tab) {
   renderTab()
 }
 
-function wireRail() {
-  for (const b of document.querySelectorAll('.rail__item')) {
-    b.addEventListener('click', () => {
-      showTab(b.dataset.tab)
-    })
+/** یک پله عقب. اگر چیزی روی پشته نباشد، به خانه برمی‌گردد. */
+export function goBack() {
+  if (isDrawerOpen()) { closeDrawer(); return true }
+  if (app.tab === 'home') return false
+  const prev = navStack.pop() ?? 'home'
+  showTab(prev, { push: false })
+  return true
+}
+
+const HEADER_TITLES = { home: 'Aether', advanced: 'Settings', tunnel: 'Tunnel settings', assistant: 'Assistant', chat: 'Chat', diagnostics: 'Diagnostics', share: 'Share over LAN', about: 'About' }
+
+function syncHeader() {
+  const header = document.getElementById('mobile-header')
+  if (!header) return
+  const atHome = app.tab === 'home'
+  header.classList.toggle('is-sub', !atHome)
+  const menuBtn = document.getElementById('menu-btn')
+  const backBtn = document.getElementById('back-btn')
+  if (menuBtn) menuBtn.hidden = !atHome
+  if (backBtn) backBtn.hidden = atHome
+  const title = document.getElementById('header-title')
+  const tagline = document.getElementById('header-tagline')
+  if (title) title.textContent = t(HEADER_TITLES[app.tab] ?? 'Aether')
+  if (tagline) { tagline.textContent = t('Freedom, in one tap'); tagline.hidden = !atHome }
+  for (const b of document.querySelectorAll('.mobile-header__action')) {
+    b.classList.toggle('is-active', b.dataset.tab === app.tab)
   }
 }
 
-// --- راه‌اندازی ---------------------------------------------------------
-const NAV_LABELS = { home: 'Home', advanced: 'Settings', assistant: 'Assistant', chat: 'Chat', diagnostics: 'Diagnostics', share: 'Share over LAN', about: 'About' }
+function wireKeys() {
+  document.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented) return
+    if (e.key === 'Escape') {
+      if (isDrawerOpen()) { e.preventDefault(); closeDrawer(); return }
+      // Esc داخل فیلدها را به خودشان واگذار می‌کنیم (بستن dropdown و…)
+      if (e.target instanceof HTMLElement && e.target.matches('input, textarea, select, [contenteditable="true"]')) return
+      if (goBack()) e.preventDefault()
+      return
+    }
+    if (e.altKey && e.key === 'ArrowLeft') {
+      if (goBack()) e.preventDefault()
+    }
+  })
+}
 
-// v9: retranslate the chrome (nav rail icons + labels + window title) for the
-// active language. The rail is a permanent Material-style navigation rail.
+// --- راه‌اندازی ---------------------------------------------------------
+const NAV_LABELS = { home: 'Home', advanced: 'Settings', tunnel: 'Tunnel settings', assistant: 'Aether AI', chat: 'Chat with Gemini', diagnostics: 'Diagnostics & logs', share: 'Share VPN', about: 'About' }
+// ۱.۴.۰-ui: زیرنویس هر آیتم کشو — همان متن‌های Android (strings.xml).
+const NAV_SUBS = {
+  assistant: 'Gemini inside the app: explain, optimize and chat',
+  chat: 'Ask anything, or say what should change',
+  advanced: 'Connection, apps, security and troubleshooting',
+  diagnostics: 'Live status of every part of the tunnel',
+  share: 'Use this computer as a proxy for other devices',
+  about: 'Makers, links and what changed in this version',
+}
+
+// retranslate the chrome (drawer items + header) for the active language.
 function translateChrome() {
-  for (const b of document.querySelectorAll('.rail__item')) {
+  for (const b of document.querySelectorAll('.drawer__item')) {
     const label = t(NAV_LABELS[b.dataset.tab] ?? b.dataset.tab)
     b.innerHTML =
-      '<span class="rail__icon">' + (NAV_ICONS[b.dataset.tab] ?? '') + '</span>' +
-      '<span class="rail__label"></span>'
-    b.querySelector('.rail__label').textContent = label
+      '<span class="drawer__icon">' + (NAV_ICONS[b.dataset.tab] ?? '') + '</span>' +
+      '<span class="drawer__text"><span class="drawer__label"></span><span class="drawer__sub"></span></span>' +
+      '<span class="drawer__chev">' + icon('chevron', 18) + '</span>'
+    b.querySelector('.drawer__label').textContent = label
+    const sub = NAV_SUBS[b.dataset.tab]
+    b.querySelector('.drawer__sub').textContent = sub ? t(sub) : ''
     b.title = label
   }
-  const title = document.querySelector('.titlebar__title')
-  if (title) title.textContent = t('Aether')
+  const menuBtn = document.getElementById('menu-btn')
+  if (menuBtn) { menuBtn.innerHTML = icon('menu', 24); menuBtn.setAttribute('aria-label', t('Menu')) }
+  const backBtn = document.getElementById('back-btn')
+  if (backBtn) { backBtn.innerHTML = icon('arrow_back', 24); backBtn.setAttribute('aria-label', t('Back')) }
+  const hdrAssistant = document.getElementById('hdr-assistant')
+  if (hdrAssistant) { hdrAssistant.innerHTML = icon('assistant', 22); hdrAssistant.setAttribute('aria-label', t('Assistant')); hdrAssistant.title = t('Assistant') }
+  const hdrTune = document.getElementById('hdr-tune')
+  if (hdrTune) { hdrTune.innerHTML = icon('tune', 22); hdrTune.setAttribute('aria-label', t('Tunnel settings')); hdrTune.title = t('Tunnel settings') }
+  const dTitle = document.querySelector('.drawer__title')
+  if (dTitle) dTitle.textContent = t('Aether')
+  const dTag = document.querySelector('.drawer__tagline')
+  if (dTag) dTag.textContent = t('Freedom, in one tap')
+  syncHeader()
 }
 
 // v8: re-render chrome + current tab after a language change.
@@ -387,21 +488,26 @@ export function rerender() {
 
 async function boot() {
   applyLang()
-  wireTitlebar()
-  wireRail()
+  wireWinbar()
+  wireDrawer()
+  wireKeys()
   translateChrome()
   // درِ ناوبری برای بقیهٔ ماژول‌ها — رجوع به مستند `src/ui/nav.js` برای اینکه
   // چرا این ثبت است و نه یک import مستقیم به `renderTab`.
   setTabRouter((tab) => {
     if (!(tab in VIEWS)) return
-    app.tab = tab
-    renderTab()
+    showTab(tab)
   })
 
   // Paint a tiny, dependency-free shell immediately. Rendering a full view
   // before profile IPC caused the advanced view to do expensive work twice.
   const host = document.getElementById('view')
-  host.innerHTML = '<div class="boot-skeleton" aria-busy="true"></div>'
+  host.innerHTML = '<div class="boot-skeleton" role="status" aria-busy="true"></div>'
+  host.firstElementChild.textContent = t('Preparing Aether…')
+  // Shell first, before any IPC, engine staging or listener registration.
+  // Defer hydration by one task so the browser can present this frame.
+  await new Promise(resolve => setTimeout(resolve, 0))
+  await invoke('startup_ready')
 
   // Fetch initial state in parallel instead of serializing two IPC round trips.
   // ui-lang-on-disk: زبان از prefs.json سمت Rust هم خوانده می‌شود (همان رفت‌وبرگشت موازی).
@@ -413,6 +519,8 @@ async function boot() {
   ])
   app.profile = profile
   app.snapshot = snapshot
+  // نمایش و صدا: حالتِ آغازین فقط پایهٔ سیاست صدا است (شروع برنامه بی‌صدا).
+  onConnectionState(snapshot?.state)
   if (storedLang === 'fa' || storedLang === 'en') {
     if (adoptStoredLang(storedLang)) translateChrome()
   } else {
@@ -432,6 +540,7 @@ async function boot() {
   let lastGateState = app.snapshot?.state ?? null
   await listen('aether://state', (event) => {
     app.snapshot = event.payload
+    onConnectionState(app.snapshot?.state)
     if (app.snapshot?.state !== lastGateState) {
       lastGateState = app.snapshot?.state ?? null
       refreshAi()
@@ -464,6 +573,19 @@ async function boot() {
   // <<< AETHER-APP-PATCH whats-new
 }
 
-boot().catch((error) => {
+export const bootReady = boot().catch((error) => {
   console.error('Aether UI bootstrap failed', error)
+  const host = document.getElementById('view')
+  if (host) {
+    host.replaceChildren()
+    const error = document.createElement('p')
+    error.className = 'boot-error'
+    error.setAttribute('role', 'alert')
+    error.textContent = t('Aether could not finish loading. Please restart the app.')
+    const retry = document.createElement('button')
+    retry.className = 'btn btn--primary'
+    retry.textContent = t('Retry')
+    retry.onclick = () => window.location.reload()
+    host.append(error, retry)
+  }
 })

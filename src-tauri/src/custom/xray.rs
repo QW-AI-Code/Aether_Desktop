@@ -91,7 +91,7 @@ pub const UPLINK_ONLY_SECONDS: u32 = 10;
 /// مهلتِ downlink پس از بسته‌شدنِ uplink (پاسخی که هنوز می‌رسد).
 pub const DOWNLINK_ONLY_SECONDS: u32 = 30;
 /// Mux برای کانفیگی که از دلِ هاپِ کند (تور، سایفون) dial می‌شود؛ پیش‌فرضِ v2rayNG.
-pub const SLOW_CHAIN_MUX: u32 = 8;
+pub const SLOW_CHAIN_MUX: u32 = 0;
 
 /// کانفیگِ کاملِ Xray را می‌سازد. `dial_via = Some(port)` یعنی کانفیگ هاپِ
 /// **آخر** است و از `127.0.0.1:port` بیرون می‌رود. Mux خاموش.
@@ -157,7 +157,17 @@ pub fn build_chain(
         Ok(Value::Object(o)) => o,
         _ => return Err("stored config is not valid JSON".into()),
     };
-    let proxy = with_mux(with_sockopt(sanitize_outbound(&user), dial_via), mux_concurrency);
+    // ۱.۴.۰: در زنجیره (dial_via / هاپِ بالادستیِ SOCKS5 مثل تور یا سایفون) Mux
+    // خاموش می‌شود. یک اتصالِ Mux شده روی نشستِ تور/سایفون، با اولین stall یا
+    // reset، همهٔ جریان‌ها را با هم می‌بُرد (پینگِ قطع، بن‌بستِ داده در نشستِ
+    // جاافتاده). هر جریان مستقل، ارزان‌تر از بازسازیِ کلِ زنجیره است.
+    // Windows: Mux is disabled for EVERY chain (BPB/Cloudflare :2086 endpoints do not
+    // support it and drop the link with "failed to read metadata"). The parameter is
+    // kept for API compatibility only.
+    let _ = mux_concurrency;
+    let chained = dial_via.is_some() || is_socks_upstream(&user);
+    let base = with_sockopt(sanitize_outbound(&user), dial_via);
+    let proxy = if chained { without_mux(base) } else { base };
     let mut plain_dns: Vec<String> = Vec::new();
     for d in network_dns
         .iter()
@@ -185,7 +195,10 @@ pub fn build_chain(
         outbounds.push(json!({
             "tag": CHAIN_TAG,
             "protocol": "socks",
-            "settings": { "servers": [ { "address": LOOPBACK, "port": via } ] }
+            "settings": { "servers": [ { "address": LOOPBACK, "port": via } ] },
+            // دامنه‌ها بدونِ resolveِ محلی به SOCKSِ بالادستی سپرده می‌شوند.
+            "streamSettings": { "sockopt": { "domainStrategy": "AsIs" } },
+            "mux": { "enabled": false }
         }));
     }
     outbounds.push(json!({
@@ -239,6 +252,11 @@ fn with_sockopt(o: Map<String, Value>, dial_via: Option<u16>) -> Map<String, Val
     if dial_via.is_some() {
         sockopt.insert("dialerProxy".into(), json!(CHAIN_TAG));
         sockopt.remove("domainStrategy");
+    } else if protocol == "socks" {
+        // outboundِ SOCKS (تور/سایفون/پراکسیِ بالادستی): دامنه‌ها **بدونِ**
+        // resolveِ محلی به خودِ SOCKS می‌روند (AsIs)؛ نشتِ DNS و شکستنِ
+        // مسیرِ onion/داخلیِ پراکسی جلوگیری می‌شود.
+        sockopt.remove("domainStrategy");
     } else if protocol != "wireguard" {
         // IPv4 اول، IPv6 فقط وقتی نام رکوردِ A ندارد.
         sockopt.insert("domainStrategy".into(), json!("UseIPv4v6"));
@@ -265,7 +283,22 @@ fn with_sockopt(o: Map<String, Value>, dial_via: Option<u16>) -> Map<String, Val
     out
 }
 
+/// آیا outboundِ کاربر خودش یک هاپِ بالادستیِ SOCKS5 است (تور، سایفون، پراکسیِ محلی)؟
+pub fn is_socks_upstream(o: &Map<String, Value>) -> bool {
+    o.get("protocol")
+        .and_then(|p| p.as_str())
+        .map(|p| p.eq_ignore_ascii_case("socks"))
+        .unwrap_or(false)
+}
+
+/// Mux را صریحاً خاموش می‌کند (`"enabled": false`) — برای حالت‌های زنجیره‌ای.
+fn without_mux(mut o: Map<String, Value>) -> Map<String, Value> {
+    o.insert("mux".into(), json!({ "enabled": false }));
+    o
+}
+
 /// Mux روی outbound؛ `concurrency <= 1` یعنی بی‌تغییر (هر نشستِ مستقیم).
+#[allow(dead_code)]
 fn with_mux(mut o: Map<String, Value>, concurrency: u32) -> Map<String, Value> {
     if concurrency <= 1 {
         return o;
@@ -522,14 +555,24 @@ mod tests {
 
     #[test]
     fn mux_only_behind_a_slow_hop_and_never_on_xtls() {
-        // بی Mux: هر نشستِ مستقیم.
+        // ۱.۴.۰: پشتِ هاپ (زنجیره) Mux صریحاً خاموش است — نشستِ تور/سایفون با
+        // Mux در اولین stall همهٔ جریان‌ها را می‌بُرد.
         let off: Value = serde_json::from_str(&build(&sample(), 1, Some(1820), &[], "warning").unwrap()).unwrap();
-        assert!(off["outbounds"][0].get("mux").is_none());
-        let on: Value =
+        assert_eq!(off["outbounds"][0]["mux"]["enabled"], false);
+        let chained: Value =
             serde_json::from_str(&build_chain(&sample(), 1, Some(1820), &[], "warning", SLOW_CHAIN_MUX).unwrap()).unwrap();
-        assert_eq!(on["outbounds"][0]["mux"]["enabled"], true);
-        assert_eq!(on["outbounds"][0]["mux"]["concurrency"], 8);
-        assert_eq!(on["outbounds"][0]["mux"]["xudpProxyUDP443"], "reject");
+        assert_eq!(chained["outbounds"][0]["mux"]["enabled"], false);
+        assert_eq!(chained["outbounds"][1]["mux"]["enabled"], false);
+        assert_eq!(chained["outbounds"][1]["streamSettings"]["sockopt"]["domainStrategy"], "AsIs");
+        // Windows: Solo also has no Mux (BPB/Cloudflare :2086 does not support it).
+        let on: Value =
+            serde_json::from_str(&build_chain(&sample(), 1, None, &[], "warning", 8).unwrap()).unwrap();
+        assert_ne!(on["outbounds"][0]["mux"]["enabled"], true);
+        // outboundِ SOCKS بالادستی: بی Mux و دامنه‌ها AsIs.
+        let socks_up = r#"{"protocol":"socks","settings":{"servers":[{"address":"127.0.0.1","port":1081}]}}"#;
+        let s: Value = serde_json::from_str(&build_chain(socks_up, 1, None, &[], "warning", SLOW_CHAIN_MUX).unwrap()).unwrap();
+        assert_eq!(s["outbounds"][0]["mux"]["enabled"], false);
+        assert!(s["outbounds"][0]["streamSettings"]["sockopt"].get("domainStrategy").is_none());
         // XTLS Vision: Xray Mux را رد می‌کند.
         let vision = parser::parse(
             &format!("vless://{UUID}@203.0.113.9:443?security=reality&sni=rusbid.de&fp=firefox&pbk=AAAA&sid=ab&flow=xtls-rprx-vision&type=tcp#v"),
@@ -540,10 +583,13 @@ mod tests {
         .unwrap()[0]
             .outbound
             .clone();
-        let v: Value = serde_json::from_str(&build_chain(&vision, 1, Some(1820), &[], "warning", 8).unwrap()).unwrap();
+        let v: Value = serde_json::from_str(&build_chain(&vision, 1, None, &[], "warning", 8).unwrap()).unwrap();
         assert!(v["outbounds"][0].get("mux").is_none());
-        let w: Value = serde_json::from_str(&build_chain(&wg(), 1, Some(1820), &[], "warning", 8).unwrap()).unwrap();
+        let w: Value = serde_json::from_str(&build_chain(&wg(), 1, None, &[], "warning", 8).unwrap()).unwrap();
         assert!(w["outbounds"][0].get("mux").is_none());
+        // و در زنجیره هم هرگز روشن نمی‌شود.
+        let vc: Value = serde_json::from_str(&build_chain(&vision, 1, Some(1820), &[], "warning", 8).unwrap()).unwrap();
+        assert_ne!(vc["outbounds"][0]["mux"]["enabled"], true);
     }
 
     #[test]

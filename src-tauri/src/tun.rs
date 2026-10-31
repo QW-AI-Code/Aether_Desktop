@@ -55,11 +55,64 @@ impl Tunnel {
     /// نیازمند دسترسی Administrator است — دقیقاً معادل دیالوگ مجوز VPN
     /// در اندروید. برنامه در صورت نیاز خودش درخواست ارتقا می‌دهد.
     pub fn establish(profile: &ConnectionProfile, wintun_dll: &std::path::Path) -> Result<Self> {
-        let lib =
-            unsafe { wintun::load_from_path(wintun_dll) }.context("could not load wintun.dll")?;
+        // AETHER-APP-FIX wintun-root-cause (1.4.0): the old code printed
+        // "administrator rights required" for EVERY failure -- even though the
+        // manifest is requireAdministrator -- and `{e}` hid the real OS error.
+        // Now: (1) the DLL must exist and load; (2) an adapter left over from a
+        // previous/crashed session is REUSED (Wintun refuses to create a second
+        // one with the same name -> ERROR_ALREADY_EXISTS); (3) creation is
+        // retried because the driver install races with SetupAPI right after
+        // boot/update; (4) the final error carries the whole cause chain, the
+        // raw OS code and the real elevation state.
+        if !wintun_dll.is_file() {
+            anyhow::bail!("wintun.dll not found at {}", wintun_dll.display());
+        }
+        let lib = unsafe { wintun::load_from_path(wintun_dll) }
+            .with_context(|| format!("could not load {}", wintun_dll.display()))?;
 
-        let adapter = wintun::Adapter::create(&lib, ADAPTER_NAME, ADAPTER_TYPE, Some(ADAPTER_GUID))
-            .context("could not create the Wintun adapter (administrator rights required)")?;
+        let adapter = match wintun::Adapter::open(&lib, ADAPTER_NAME) {
+            Ok(a) => {
+                DiagnosticsLog::i("tun", "Re-using the existing Aether Wintun adapter");
+                a
+            }
+            Err(_) => {
+                let mut last: Option<wintun::Error> = None;
+                let mut made = None;
+                for attempt in 0..3u32 {
+                    match wintun::Adapter::create(&lib, ADAPTER_NAME, ADAPTER_TYPE, Some(ADAPTER_GUID))
+                    {
+                        Ok(a) => {
+                            made = Some(a);
+                            break;
+                        }
+                        Err(e) => {
+                            DiagnosticsLog::w(
+                                "tun",
+                                &format!("Wintun create attempt {} failed: {e}", attempt + 1),
+                            );
+                            last = Some(e);
+                            std::thread::sleep(std::time::Duration::from_millis(400));
+                            // The adapter may have appeared meanwhile.
+                            if let Ok(a) = wintun::Adapter::open(&lib, ADAPTER_NAME) {
+                                made = Some(a);
+                                break;
+                            }
+                        }
+                    }
+                }
+                match made {
+                    Some(a) => a,
+                    None => {
+                        let e = last.map(|e| e.to_string()).unwrap_or_default();
+                        let code = os_code_of(&e);
+                        return Err(anyhow::anyhow!(
+                            "{}",
+                            describe_create_failure(&e, code, crate::diagnostics::is_elevated())
+                        ));
+                    }
+                }
+            }
+        };
 
         // ۱.۲.۵-perf — ظرفیتِ رینگ از بزرگ‌ترین مقدارِ ممکن به کوچک‌ترین آمد.
         //
@@ -219,6 +272,31 @@ impl Drop for Tunnel {
     }
 }
 
+/// Pulls N out of an `... (os error N)` Display string (std::io::Error format).
+pub fn os_code_of(text: &str) -> i32 {
+    text.rsplit("(os error ")
+        .next()
+        .filter(|_| text.contains("(os error "))
+        .and_then(|t| t.split(')').next())
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// Honest failure text: names the elevation state and the raw error instead of
+/// always blaming administrator rights. Pure function -> unit-testable.
+pub fn describe_create_failure(err: &str, os_code: i32, elevated: bool) -> String {
+    let hint = if !elevated {
+        "the process is NOT elevated - run Aether as administrator"
+    } else if os_code == 183 || err.contains("already exists") {
+        "an adapter with this name is still registered - it will be reused on the next attempt; if it persists, remove the stale 'Aether' adapter in Device Manager"
+    } else if os_code == 5 || err.to_lowercase().contains("access is denied") {
+        "access denied although elevated - security software or a driver policy is blocking the Wintun driver install"
+    } else {
+        "the Wintun driver could not be installed/started (check antivirus, Core Isolation, and that wintun.dll matches the app architecture)"
+    };
+    format!("could not create the Wintun adapter: {err} (os error {os_code}, elevated={elevated}) - {hint}")
+}
+
 /// اجرای یک دستور netsh بدون بازکردن پنجرهٔ کنسول.
 fn netsh(args: &[&str]) -> bool {
     #[cfg(windows)]
@@ -235,4 +313,25 @@ fn netsh(args: &[&str]) -> bool {
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
     cmd.output().map(|o| o.status.success()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod failure_text_tests {
+    use super::describe_create_failure;
+    #[test]
+    fn not_elevated_is_the_only_case_that_blames_admin() {
+        assert!(describe_create_failure("x", 5, false).contains("NOT elevated"));
+        assert!(!describe_create_failure("x", 5, true).contains("NOT elevated"));
+    }
+    #[test]
+    fn parses_os_code() {
+        assert_eq!(super::os_code_of("Access is denied. (os error 5)"), 5);
+        assert_eq!(super::os_code_of("nothing"), 0);
+    }
+    #[test]
+    fn already_exists_and_denied_are_distinguished() {
+        assert!(describe_create_failure("x", 183, true).contains("still registered"));
+        assert!(describe_create_failure("x", 5, true).contains("access denied although elevated"));
+        assert!(describe_create_failure("boom", 1, true).contains("os error 1"));
+    }
 }

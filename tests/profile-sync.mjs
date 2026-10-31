@@ -55,7 +55,7 @@ window.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } },
 }
 
-const main = await import('../src/main.js')
+const main = await import('../src/main.js').then(async m => { await m.bootReady; return m })
 main.app.profile = { ...rustProfile }
 
 let failed = 0

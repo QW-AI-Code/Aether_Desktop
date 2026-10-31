@@ -93,9 +93,20 @@ fn dial(how: Dial, host: &str, port: u16, timeout: Duration) -> Result<TcpStream
                 .to_socket_addrs()
                 .map_err(|e| anyhow!("could not resolve {host}: {e}"))?
                 .collect();
-            // IPv4 اول: مسیر IPv6 روی بسیاری از شبکه‌های اینجا ناقص است.
-            let mut ordered: Vec<_> = addrs.iter().filter(|a| a.is_ipv4()).cloned().collect();
-            ordered.extend(addrs.iter().filter(|a| a.is_ipv6()).cloned());
+            // IPv4 اول: مسیر IPv6 روی بسیاری از شبکه‌های اینجا ناقص است. نشانی‌های
+            // بی‌معنی (0.0.0.0، پخش همگانی 255.255.255.255، multicast) حذف می‌شوند:
+            // اتصال به آن‌ها در ویندوز دقیقاً با WSAEACCES (10013) رد می‌شود و یک DNS
+            // خراب/پاک‌سازی‌شده را به «فایروال مرا بست» تبدیل می‌کرد.
+            let usable = |a: &&std::net::SocketAddr| {
+                let ip = a.ip();
+                !(ip.is_unspecified() || ip.is_multicast()
+                    || matches!(ip, std::net::IpAddr::V4(v4) if v4.is_broadcast()))
+            };
+            let mut ordered: Vec<_> = addrs.iter().filter(usable).filter(|a| a.is_ipv4()).cloned().collect();
+            ordered.extend(addrs.iter().filter(usable).filter(|a| a.is_ipv6()).cloned());
+            if ordered.is_empty() && !addrs.is_empty() {
+                return Err(anyhow!("{host} resolves only to unusable addresses (a DNS block page or a broken resolver)"));
+            }
             let mut last = None;
             for addr in ordered {
                 match TcpStream::connect_timeout(&addr, timeout) {

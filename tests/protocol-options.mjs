@@ -26,6 +26,9 @@ globalThis.cancelAnimationFrame = clearTimeout
 window.__TAURI_INTERNALS__ = {
   invoke: (cmd) => {
     if (cmd === 'plugin:event|listen') return Promise.resolve(1)
+    // Complete bootstrap replies: null snapshots make main.js fail asynchronously.
+    if (cmd === 'get_profile') return Promise.resolve({ backend: 'AETHER', protocol: 'SMART', scanMode: 'BALANCED', ipVersion: 'V4' })
+    if (cmd === 'get_snapshot') return Promise.resolve({ state: 'DISCONNECTED', detail: '', latencyMs: -1, uptimeSecs: 0, rxBytes: 0, txBytes: 0 })
     if (cmd === 'core_caps') {
       return Promise.resolve({
         zeroTrust: true, routing: true, customDns: true,
@@ -52,7 +55,7 @@ const fromRust = [...enumBody.matchAll(/^\s{4}([A-Z][A-Za-z]*),/gm)].map((m) => 
 check(fromRust.length >= 5, `enum Protocol در Rust: ${fromRust.join(', ')}`)
 
 // ---- ۲) آنچه واقعاً رندر می‌شود -------------------------------------------
-const main = await import('../src/main.js')
+const main = await import('../src/main.js').then(async m => { await m.bootReady; return m })
 main.app.profile = { backend: 'AETHER', protocol: 'SMART', scanMode: 'BALANCED', ipVersion: 'V4' }
 const { renderAdvanced } = await import('../src/views/advanced.js')
 
@@ -66,7 +69,7 @@ for (const value of fromRust) {
 }
 
 // GOOL's carrier must be selectable even when Smart Auto later chooses GOOL.
-// The saved value maps to real Core 2.3.0 flags, not just a cosmetic label.
+// The saved value maps to real Core 2.4.0 flags, not just a cosmetic label.
 const modes = [...root.querySelectorAll('.seg[data-key="goolMode"] .seg__item')]
 check(modes.map((b) => b.dataset.value).join(',') === 'MODERN,CLASSIC',
   'انتخاب هر دو بستر GOOL در بخش اتصال حتی با Smart دیده می‌شود')

@@ -45,7 +45,7 @@ window.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } },
 }
 
-await import('../src/main.js')
+await import('../src/main.js').then(async m => { await m.bootReady; return m })
 const { ai, applyAiSnapshot, refreshAi } = await import('../src/ai.js')
 const { renderAssistant } = await import('../src/views/assistant.js')
 const { renderDiagnostics } = await import('../src/views/diagnostics.js')

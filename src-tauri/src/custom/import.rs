@@ -8,6 +8,7 @@
 //!   داخلِ خودِ تونل می‌رود، وگرنه مستقیم.
 //! - فایل: `.npvt`، `.txt`، `.json`، `.conf` تا ۲ مگابایت، UTF-8.
 
+use super::npvt;
 use super::parser::{self, ImportError};
 use super::{now_millis, ConfigSource, CustomConfig};
 use crate::mini_https::{self, Dial};
@@ -15,7 +16,7 @@ use std::path::Path;
 use std::time::Duration;
 
 pub const MAX_INPUT_BYTES: usize = 2 * 1024 * 1024;
-pub const FILE_EXTENSIONS: [&str; 4] = ["npvt", "txt", "json", "conf"];
+pub const FILE_EXTENSIONS: [&str; 5] = ["npvt", "npvs", "txt", "json", "conf"];
 const MAX_REDIRECTS: usize = 5;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -29,7 +30,7 @@ pub fn subscription_url(text: &str) -> Option<&str> {
     if t.contains(char::is_whitespace) {
         return None;
     }
-    if t.len() > 8 && t[..8].eq_ignore_ascii_case("https://") {
+    if t.len() > 8 && t.get(..8).map(|s|s.eq_ignore_ascii_case("https://")).unwrap_or(false) {
         Some(t)
     } else {
         None
@@ -38,7 +39,7 @@ pub fn subscription_url(text: &str) -> Option<&str> {
 
 fn resolve_location(base: &str, location: &str) -> Option<String> {
     let loc = location.trim();
-    if loc.len() > 8 && loc[..8].eq_ignore_ascii_case("https://") {
+    if loc.len() > 8 && loc.get(..8).map(|s|s.eq_ignore_ascii_case("https://")).unwrap_or(false) {
         return Some(loc.to_string());
     }
     if loc.to_ascii_lowercase().starts_with("http://") {
@@ -53,28 +54,52 @@ fn resolve_location(base: &str, location: &str) -> Option<String> {
     }
 }
 
-/// بدنهٔ یک اشتراکِ https را دانلود می‌کند.
+/// بدنهٔ یک اشتراکِ https را (به‌صورت متن) دانلود می‌کند.
 pub fn download(url: &str, dial: Dial) -> Result<String, ImportError> {
+    let bytes = download_bytes(url, dial)?;
+    String::from_utf8(bytes).map_err(|_| ImportError::Invalid("subscription is not UTF-8 text".into()))
+}
+
+/// آیا خطای انتقال از نوعِ «ویندوز اجازهٔ سوکت را نداد» (WSAEACCES، 10013) یا
+/// مشابهِ آن است؟ این خطا از فایروال، آنتی‌ویروس یا یک VPN/پراکسیِ دیگر می‌آید و
+/// به قاعدهٔ «به ازای هر برنامه» وابسته است؛ پس فرایندِ دیگری ممکن است اجازه داشته باشد.
+pub fn is_access_denied(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("10013") || m.contains("forbidden by its access permissions") || m.contains("access is denied")
+        || m.contains("permission denied")
+}
+
+/// دریافتِ باینری‌امن (فایل میزبانی‌شدهٔ NPVS هم باینری است). ابتدا سوکتِ خودِ
+/// برنامه؛ اگر شبکه/فایروال آن را بست، به ابزارهای خودِ ویندوز (`curl.exe` و
+/// سپس PowerShell با پراکسیِ سیستم) برمی‌گردد که هویتِ برنامهٔ دیگری دارند.
+pub fn download_bytes(url: &str, dial: Dial) -> Result<Vec<u8>, ImportError> {
     let mut current = url.to_string();
     for _ in 0..=MAX_REDIRECTS {
         let headers = [("User-Agent", "Aether".to_string()), ("Accept", "*/*".to_string())];
-        let resp = mini_https::exchange(
-            dial,
-            "GET",
-            &current,
-            &headers,
-            None,
-            DOWNLOAD_TIMEOUT,
-            MAX_INPUT_BYTES,
-        )
-        .map_err(|e| ImportError::Invalid(format!("subscription download failed: {e}")))?;
+        let first = mini_https::exchange(dial, "GET", &current, &headers, None, DOWNLOAD_TIMEOUT, MAX_INPUT_BYTES);
+        let resp = match first {
+            Ok(r) => r,
+            Err(e) => {
+                let why = e.to_string();
+                if is_access_denied(&why) {
+                    crate::log::DiagnosticsLog::w("custom", "Windows refused this app's own socket (WSAEACCES) while downloading a subscription; retrying through the system downloader.");
+                }
+                // کل زنجیرهٔ ریدایرکت‌ها را ابزارِ سیستم از همین نقطه ادامه می‌دهد.
+                return match system_fetch(&current) {
+                    Ok(body) => Ok(body),
+                    Err(sys) => {
+                        let extra = if sys.is_empty() { String::new() } else { format!(" | {sys}") };
+                        Err(ImportError::Invalid(format!("subscription download failed: {why}{extra}")))
+                    }
+                };
+            }
+        };
         match resp.code {
             200..=299 => {
                 if resp.body.len() > MAX_INPUT_BYTES {
                     return invalid("subscription is larger than 2 MB");
                 }
-                return String::from_utf8(resp.body)
-                    .map_err(|_| ImportError::Invalid("subscription is not UTF-8 text".into()));
+                return Ok(resp.body);
             }
             301 | 302 | 303 | 307 | 308 => {
                 let Some(next) = resp.header("location").and_then(|l| resolve_location(&current, l))
@@ -87,6 +112,72 @@ pub fn download(url: &str, dial: Dial) -> Result<String, ImportError> {
         }
     }
     invalid("subscription redirected too many times")
+}
+
+/// پشتیبانِ دریافت از فرایندِ سیستمی. در غیرِ ویندوز همیشه خطا برمی‌گرداند.
+#[cfg(not(windows))]
+fn system_fetch(_url: &str) -> Result<Vec<u8>, String> {
+    Err(String::new())
+}
+
+#[cfg(windows)]
+fn system_fetch(url: &str) -> Result<Vec<u8>, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::{Command, Stdio};
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    if !url.to_ascii_lowercase().starts_with("https://") || url.contains(['\'', '"', '`', '\r', '\n', ' ']) {
+        return Err(String::new());
+    }
+    let sys = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let sys32 = Path::new(&sys).join("System32");
+    // ۱) curl.exe (ویندوز ۱۰ به بعد در System32 است)
+    let curl = sys32.join("curl.exe");
+    if curl.is_file() {
+        let out = Command::new(&curl)
+            .args(["-sS", "-L", "--max-redirs", "5", "--proto", "=https", "--proto-redir", "=https",
+                   "--ssl-no-revoke", "-m", "25", "--max-filesize", "2097152", "-A", "Aether",
+                   "-w", "\n%{http_code}", url])
+            .stdin(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        if let Ok(o) = out {
+            if o.status.success() {
+                if let Some(pos) = o.stdout.iter().rposition(|b| *b == b'\n') {
+                    let code = String::from_utf8_lossy(&o.stdout[pos + 1..]).trim().to_string();
+                    if code.starts_with('2') {
+                        return Ok(o.stdout[..pos].to_vec());
+                    }
+                    return Err(format!("system curl answered HTTP {code}"));
+                }
+            }
+        }
+    }
+    // ۲) PowerShell با پراکسی/اعتبارِ سیستم
+    let ps = sys32.join("WindowsPowerShell").join("v1.0").join("powershell.exe");
+    if ps.is_file() {
+        let script = format!(
+            "$ErrorActionPreference='Stop';[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;\
+             $p=[Net.WebRequest]::DefaultWebProxy;if($p){{$p.Credentials=[Net.CredentialCache]::DefaultCredentials}};\
+             $r=Invoke-WebRequest -UseBasicParsing -Uri '{url}' -TimeoutSec 25 -UserAgent 'Aether';\
+             [Convert]::ToBase64String($r.RawContentStream.ToArray())"
+        );
+        let out = Command::new(&ps)
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+            .stdin(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        if let Ok(o) = out {
+            if o.status.success() {
+                let b64 = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                if let Some(body) = super::npvt::decode_base64(&b64) {
+                    if body.len() <= MAX_INPUT_BYTES {
+                        return Ok(body);
+                    }
+                }
+            }
+        }
+    }
+    Err("the system downloader also failed".into())
 }
 
 /// نویسه‌هایی که روی صفحه دیده نمی‌شوند ولی لینک را می‌شکنند — همان فهرستِ
@@ -124,7 +215,14 @@ pub fn from_text(
     }
     let text = clean_input(text);
     if let Some(url) = subscription_url(&text) {
-        let body = clean_input(&download(url, dial)?);
+        let raw = download_bytes(url, dial)?;
+        // یک فایل میزبانی‌شدهٔ NPVS باینری است و نباید به متن تبدیل شود.
+        if npvt::is_binary(&raw) {
+            return parser::parse_bytes(&raw, ConfigSource::Link, password, now_millis());
+        }
+        let body = String::from_utf8(raw)
+            .map(|t| clean_input(&t))
+            .map_err(|_| ImportError::Invalid("subscription is not UTF-8 text".into()))?;
         return parser::parse(&body, ConfigSource::Link, password, now_millis());
     }
     parser::parse(&text, ConfigSource::Link, password, now_millis())
@@ -138,7 +236,7 @@ pub fn from_file(path: &Path, password: Option<&str>) -> Result<Vec<CustomConfig
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
     if !FILE_EXTENSIONS.contains(&ext.as_str()) {
-        return invalid("unsupported file type (use .npvt, .txt, .json or .conf)");
+        return invalid("unsupported file type (use .npvt, .npvs, .txt, .json or .conf)");
     }
     let meta = std::fs::metadata(path).map_err(|e| ImportError::Invalid(format!("file could not be read: {e}")))?;
     if !meta.is_file() {
@@ -148,8 +246,7 @@ pub fn from_file(path: &Path, password: Option<&str>) -> Result<Vec<CustomConfig
         return invalid("file is larger than 2 MB");
     }
     let bytes = std::fs::read(path).map_err(|e| ImportError::Invalid(format!("file could not be read: {e}")))?;
-    let text = String::from_utf8(bytes).map_err(|_| ImportError::Invalid("file is not UTF-8 text".into()))?;
-    parser::parse(&text, ConfigSource::File, password, now_millis())
+    parser::parse_bytes(&bytes, ConfigSource::File, password, now_millis())
 }
 
 /// فایلی که رابط کاربری خودش خوانده (`<input type="file">`): نام برای
@@ -165,10 +262,14 @@ pub fn from_file_text(
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
     if !FILE_EXTENSIONS.contains(&ext.as_str()) {
-        return invalid("unsupported file type (use .npvt, .txt, .json or .conf)");
+        return invalid("unsupported file type (use .npvt, .npvs, .txt, .json or .conf)");
     }
     if text.len() > MAX_INPUT_BYTES {
         return invalid("file is larger than 2 MB");
+    }
+    // A binary NPVS envelope is not text: converting it to a String would corrupt it.
+    if text.starts_with("NPVS") {
+        return invalid("binary NPVS files must be imported as bytes");
     }
     parser::parse(text, ConfigSource::File, password, now_millis())
 }
@@ -261,3 +362,5 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]mod unicode_url_tests {use super::*;#[test]fn multibyte_input_never_slices_mid_codepoint(){for s in ["🌍🌍🌍hello","سلامسلامسلام","abcdefg🌍.invalid"]{assert_eq!(subscription_url(s),None);assert_eq!(resolve_location("https://example.invalid/",s),None);}}}

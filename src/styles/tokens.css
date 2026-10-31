@@ -4,17 +4,28 @@
    ========================================================================== */
 :root {
   /* Navy palette (Color.kt) */
-  --navy-900: #0A0E1A;
-  --navy-800: #0F1626;
-  --navy-700: #16203A;
-  --navy-600: #1E2A4A;
+  /* ۱.۴.۰-ui: پالت هفت‌پله‌ای موبایل ۱.۶.۰ (Color.kt) */
+  --navy-950: #070B14;
+  --navy-900: #070B14;
+  --navy-850: #101827;
+  --navy-800: #0B111D;
+  --navy-750: #1B2842;
+  --navy-700: #101827;
+  --navy-row: #152034;
+  --navy-600: #223154;
+  --navy-outline: #2B3C63;
+  --aether-teal:   #35D0E8;
+  --aether-amber:  #FFB74D;
+  --aether-violet: #9B8CFF;
+  --aether-violet-bg: #241E4A;
+  --on-dark-faint: #64718C;
 
-  --aether-blue:  #4C8DFF;
-  --aether-cyan:  #32E0C4;
+  --aether-blue:  #5B93FF;
+  --aether-cyan:  #3EDBB0;
   --aether-error: #FF5C7A;
 
-  --on-dark:       #E6ECF5;
-  --on-dark-muted: #9AA7BF;
+  --on-dark:       #E8EEF9;
+  --on-dark-muted: #93A1BC;
 
   /* Material 3 role mapping (Theme.kt::AetherDarkColorScheme) */
   --md-primary:            var(--aether-blue);
@@ -59,42 +70,54 @@
 
 /* ۱.۳.۰ — پنجرهٔ «تازه‌ها» و بایگانیِ پیام‌ها (پورت از اندروید ۱.۵.۰) */
 :root {
-  --news-bg:            #0d1527;
-  --news-bg-2:          #101b33;
-  --news-border:        #1e2b4a;
+  --news-bg:            #0B111D;
+  --news-bg-2:          #101827;
+  --news-border:        #223154;
   --news-divider:       #1a2640;
   --news-text:          #ffffff;
   --news-text-2:        #cbd5e1;
-  --news-note:          #94a3b8;
-  --news-accent:        #38bdf8;
-  --news-accent-2:      #60a5fa;
+  --news-note:          #93A1BC;
+  --news-accent:        #5B93FF;
+  --news-accent-2:      #35D0E8;
   --news-on-accent:     #0d1527;
   --news-warn-bg:       rgba(234, 179, 8, 0.15);
   --news-warn-bar:      #eab308;
   --news-scroll-track:  rgba(148, 163, 184, 0.10);
-  --news-scroll-thumb:  rgba(56, 189, 248, 0.55);
-  --news-scroll-hover:  #38bdf8;
+  --news-scroll-thumb:  rgba(91, 147, 255, 0.55);
+  --news-scroll-hover:  #5B93FF;
   --news-check-idle:    #64748b;
   --news-scrim:         rgba(3, 7, 15, 0.72);
 }
 
 /* ==========================================================================
-   تطبیق با دسکتاپ: طراحی عیناً همان است، فقط مقیاس و چیدمان تغییر می‌کند.
-   موبایل: تک‌ستونی با Drawer رویی.
-   دسکتاپ: همان کارت‌ها، ولی در یک rail دائمی + ستون محتوا.
+   ۱.۴.۰-mobile — پوستهٔ موبایل روی ویندوز: تک‌ستونی با Drawer رویی (همان
+   چیدمان اندروید ۱.۶.۰). پنجره ۳۹۰×۸۲۰ باز می‌شود و از ۳۶۰×۷۲۰ کوچک‌تر نمی‌شود.
+   ریل دائمی و نوار عنوان ۴۰ پیکسلی دسکتاپ حذف شدند؛ بالای پنجره فقط یک نوار
+   درگِ ۲۸ پیکسلی ویندوز است و زیر آن هدر موبایل.
    ========================================================================== */
 :root {
-  --rail-width: 84px; /* v9: slim permanent Material navigation rail */
-  --content-max: 560px;   /* عرض منطقی صفحهٔ موبایل، حفظ‌شده تا طراحی کشیده نشود */
-  --titlebar-height: 40px;
-  /* ۱.۲.۴-p1: قطرِ دیسک، معادل `DISC = 132.dp` موبایل و نه جعبهٔ ۱۹۰ آن. دکمهٔ
-     ۱۷۲/۱۹۶ پیکسلی پیش از این، تنها به‌تنهایی ۵۰ پیکسل از ارتفاعی را می‌خورد که
-     کارت اتصال برای کامل‌دیده‌شدن لازم داشت. */
-  --connect-button: 138px;
-}
+  /* نوار درگ ویندوز (دکمه‌های کمینه/بستن). app.css لایه‌های رویی را از همین
+     ارتفاع به پایین می‌چیند، پس نامِ توکن عمداً حفظ شده است. */
+  --titlebar-height: 28px;
+  --winbar-height: var(--titlebar-height);
+  /* هدر موبایل (منو، عنوان + شعار، میانبرها) */
+  --mobile-header-height: 64px;
+  /* ریل حذف شد؛ صفر می‌ماند تا هر محاسبهٔ قدیمی‌ای که به آن ارجاع می‌دهد خراب نشود. */
+  --rail-width: 0px;
+  /* ستون محتوا به عرض صفحه است (۳۹۰ منطقی موبایل). */
+  --content-max: 100%;
+  --content-pad: 16px;
+  /* کشوی ناوبری — ۸۶٪ عرض، حداکثر ۳۶۰ پیکسل (ModalNavigationDrawer) */
+  --drawer-width: min(86vw, 360px);
+  /* ۱.۲.۴-p1: قطرِ دیسک، معادل `DISC = 132.dp` موبایل. */
+  --connect-button: 132px;
 
-@media (min-width: 1280px) {
-  /* ستون محتوا پهن‌تر از موبایل است — در ویندوز فضا هست و کارت اتصال با عرض
-     بیشتر به سه‌نقطه و شکستنِ خط نمی‌افتد. دکمه با آن بزرگ نمی‌شود. */
-  :root { --connect-button: 146px; --content-max: 660px; }
+  /* SettingsUi.kt — کارت گروه و ردیف تنظیمات */
+  --settings-card-radius: 22px;
+  --settings-card-bg: var(--navy-850);
+  --settings-row-min-h: 60px;
+  --settings-icon-size: 34px;
+  --settings-icon-radius: 11px;
+  --settings-divider-inset: 60px;
+  --settings-divider: rgba(43, 60, 99, 0.55);
 }

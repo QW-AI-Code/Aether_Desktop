@@ -77,7 +77,9 @@ pub fn evaluate(
     if state != ConnectionState::Connected {
         return AiGate::Disconnected;
     }
-    if !backend.is_chained() {
+    let route=crate::custom::ai_policy::active();
+    let eligible=route.map(|r|r.mode.map(crate::custom::ai_policy::custom_eligible).unwrap_or(backend.is_chained())).unwrap_or(false);
+    if !eligible {
         return AiGate::WrongMode;
     }
     if !has_model {
@@ -102,6 +104,8 @@ pub fn socks_port(backend: TransportBackend) -> u16 {
 }
 
 /// راحتیِ فراخوان‌ها: هر دو مقدارِ لازم از یک پروفایل.
-pub fn socks_port_for(profile: &ConnectionProfile) -> u16 {
-    socks_port(profile.backend)
+pub fn socks_port_for(profile: &ConnectionProfile) -> Result<u16,String> {
+    let route=crate::custom::ai_policy::active().ok_or_else(||"Connect a tunnel before using AI.".to_string())?;
+    if !route.mode.map(crate::custom::ai_policy::custom_eligible).unwrap_or(profile.backend.is_chained()){return Err("This active exit is not eligible for AI.".into());}
+    Ok(route.port)
 }

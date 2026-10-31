@@ -62,8 +62,8 @@
 }
 .chat__row.is-user .chat__bubble {
   border-radius: 16px 16px 5px 16px;
-  background: color-mix(in srgb, #4c8dff 20%, transparent);
-  border-color: color-mix(in srgb, #4c8dff 30%, transparent);
+  background: color-mix(in srgb, #5B93FF 20%, transparent);
+  border-color: color-mix(in srgb, #5B93FF 30%, transparent);
 }
 .chat__row.is-failed .chat__bubble {
   background: color-mix(in srgb, #ff5c7a 12%, transparent);
@@ -214,7 +214,7 @@
   font-family: 'Cascadia Mono', Consolas, monospace;
   /* `dir="ltr"` روی خودِ عنصر هم هست؛ این برای وقتی است که والد راست‌به‌چپ باشد. */
   text-align: start;
-  color: var(--text, #e6ecf5);
+  color: var(--text, #E8EEF9);
   word-break: break-word;
 }
 .chat__changewhy { font-size: 11.5px; line-height: 1.6; color: var(--text-dim, #8b97a8); }

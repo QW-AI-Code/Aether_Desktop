@@ -38,7 +38,7 @@ pub enum Protocol {
     Mim,
 }
 
-/// Core 2.3.0 GOOL variant. Modern is the new default (`--gool`), while
+/// Core 2.4.0 GOOL variant. Modern is the new default (`--gool`), while
 /// Classic preserves the older WireGuard-inside-WireGuard path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "UPPERCASE")]
@@ -331,6 +331,9 @@ pub struct CoreCaps {
     pub tor: bool,
     /// Core 2.0.0: `--mim` / MASQUE inside MASQUE.
     pub mim: bool,
+    /// Core 2.4.0: TLS fingerprint / API-routing environment knobs
+    /// (`AETHER_TLS_*`, `AETHER_API_*`, `AETHER_MASQUE_SNI`, ...).
+    pub tls24: bool,
 }
 
 impl CoreCaps {
@@ -344,6 +347,7 @@ impl CoreCaps {
             route_sniff: false,
             tor: false,
             mim: false,
+            tls24: false,
         }
     }
 
@@ -357,6 +361,7 @@ impl CoreCaps {
             route_sniff: true,
             tor: true,
             mim: true,
+            tls24: true,
         }
     }
 
@@ -376,6 +381,7 @@ impl CoreCaps {
             route_sniff: v17,
             tor: v20,
             mim: v20,
+            tls24: (major, minor) >= (2, 4),
         }
     }
 }
@@ -443,6 +449,8 @@ pub const DEFAULT_MTU: u32 = 1280;
 pub const MTU_PRESETS: [u32; 5] = [1280, 1380, 1420, 1500, 8500];
 pub const KEEPALIVE_PRESETS: [u32; 4] = [0, 10, 25, 45];
 
+fn default_verify() -> bool { true }
+fn default_health_secs()->u64 {300}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ConnectionProfile {
@@ -461,6 +469,14 @@ pub struct ConnectionProfile {
     pub scan_mode: ScanMode,
     pub ip_version: IpVersion,
     pub quick_reconnect: bool,
+    #[serde(default = "default_verify")]
+    pub verify_connection: bool,
+    #[serde(default = "default_verify")]
+    pub custom_verify_connection: bool,
+    #[serde(default)]
+    pub custom_auto_select: bool,
+    #[serde(default="default_health_secs")]
+    pub custom_health_secs: u64,
     /// بازاستفاده از اندپوینتِ کش‌شده فقط در صورتی که همچنان سریع باشد (پیش‌فرض خاموش).
     pub fast_endpoint_only: bool,
     /// پیکربندی سفارشی ECH (یک ECHConfigList با فرمت base64). خالی = خودکار.
@@ -547,6 +563,30 @@ pub struct ConnectionProfile {
     /// هسته‌ی 1.7.0 نام را از SNI یا هدر Host می‌خواند. پیش‌فرض **روشن** —
     /// دقیقاً مثل خود هسته.
     pub route_sniff: bool,
+    /// Core 2.4.0 — TLS / API tuning. Empty string or `false` = core default
+    /// (nothing is sent). All values are sanitised in `to_env_with_caps`.
+    pub tls_verify: bool,
+    pub api_address: String,
+    pub api_sni: String,
+    pub api_host: String,
+    pub masque_sni: String,
+    pub tls_ciphers: String,
+    pub tls13_ciphers: String,
+    pub tls_groups: String,
+    pub tls_key_shares: String,
+    pub tls_sigalgs: String,
+    pub tls_cert_compression: String,
+    /// `""`, `"new"` or `"old"`.
+    pub tls_alps: String,
+    pub tls_trust_anchors: String,
+    pub tls_server_padding: String,
+    pub disable_grease: bool,
+    pub enable_grease_sigalgs: bool,
+    pub enable_ech_grease: bool,
+    pub disable_ocsp_stapling: bool,
+    pub disable_sct: bool,
+    pub disable_session_ticket: bool,
+    pub disable_extension_permutation: bool,
     /// Revision of the settings *defaults* this profile was written against.
     ///
     /// Not a user setting and not shown anywhere. It exists so a default that
@@ -652,6 +692,10 @@ impl Default for ConnectionProfile {
             scan_mode: ScanMode::Balanced,
             ip_version: IpVersion::V4,
             quick_reconnect: true,
+            verify_connection: true,
+            custom_verify_connection: true,
+            custom_auto_select:false,
+            custom_health_secs:300,
             fast_endpoint_only: false,
             ech_config: String::new(),
             masque_http2: false,
@@ -684,6 +728,27 @@ impl Default for ConnectionProfile {
             dns: Vec::new(),
             upstream: String::new(),
             route_sniff: true,
+            tls_verify: false,
+            api_address: String::new(),
+            api_sni: String::new(),
+            api_host: String::new(),
+            masque_sni: String::new(),
+            tls_ciphers: String::new(),
+            tls13_ciphers: String::new(),
+            tls_groups: String::new(),
+            tls_key_shares: String::new(),
+            tls_sigalgs: String::new(),
+            tls_cert_compression: String::new(),
+            tls_alps: String::new(),
+            tls_trust_anchors: String::new(),
+            tls_server_padding: String::new(),
+            disable_grease: false,
+            enable_grease_sigalgs: false,
+            enable_ech_grease: false,
+            disable_ocsp_stapling: false,
+            disable_sct: false,
+            disable_session_ticket: false,
+            disable_extension_permutation: false,
             reprovision: true,
             settings_rev: SETTINGS_REV,
             // ۱.۲.۵ — هر پنج تنظیم تور روی «همان کاری که موتور خودش می‌کند»
@@ -1109,6 +1174,11 @@ impl ConnectionProfile {
     pub fn to_env_with_caps(&self, caps: CoreCaps) -> BTreeMap<String, String> {
         let mut env = BTreeMap::new();
 
+        // Core 2.4.0 TLS / API knobs — never sent to an older pinned core.
+        if caps.tls24 {
+            env.extend(self.tls24_env());
+        }
+
         // HTTP CONNECT هیچ UDP‌ای حمل نمی‌کند؛ با پروکسی بالادستِ HTTP تنها
         // مسیر کارآمد MASQUE روی HTTP/2 است. پس همان چیزی که هسته با
         // `--h2` می‌فهمد را خودمان روشن می‌کنیم تا کاربر با یک تونلِ خاموش
@@ -1311,6 +1381,90 @@ fn is_bridge_line(line: &str) -> bool {
 }
 
 /// حذف فاصله‌های اضافی و ورودی‌های خالی از یک فهرست (route/dns).
+/// Characters a core-2.4 list/name option may contain. Anything else
+/// (whitespace, quotes, control chars, `=`, `;`, `&`, `|`, `$`) makes the
+/// value be dropped rather than passed to the engine environment.
+fn safe_opt(raw: &str, extra: &str, max: usize) -> Option<String> {
+    let v = raw.trim();
+    if v.is_empty() || v.len() > max {
+        return None;
+    }
+    if v.chars()
+        .all(|c| c.is_ascii_alphanumeric() || extra.contains(c))
+    {
+        Some(v.to_string())
+    } else {
+        None
+    }
+}
+
+impl ConnectionProfile {
+    /// Core 2.4.0 environment (`AETHER_TLS_*`, `AETHER_API_*`, ...).
+    pub fn tls24_env(&self) -> BTreeMap<String, String> {
+        let mut env = BTreeMap::new();
+        let mut put = |k: &str, v: Option<String>| {
+            if let Some(v) = v {
+                env.insert(k.to_string(), v);
+            }
+        };
+        put("AETHER_TLS_VERIFY", self.tls_verify.then(|| "1".to_string()));
+        put("AETHER_API_ADDRESS", safe_opt(&self.api_address, ".-:[]_", 255));
+        put("AETHER_API_SNI", safe_opt(&self.api_sni, ".-_", 253));
+        put("AETHER_API_HOST", safe_opt(&self.api_host, ".-_", 253));
+        put("AETHER_MASQUE_SNI", safe_opt(&self.masque_sni, ".-_", 253));
+        put("AETHER_TLS_CIPHERS", safe_opt(&self.tls_ciphers, "-_:!+", 1024));
+        put("AETHER_TLS13_CIPHERS", safe_opt(&self.tls13_ciphers, "_:", 512));
+        put("AETHER_TLS_GROUPS", safe_opt(&self.tls_groups, "-_:", 256));
+        put("AETHER_TLS_KEY_SHARES", safe_opt(&self.tls_key_shares, "-_:", 256));
+        put("AETHER_TLS_SIGALGS", safe_opt(&self.tls_sigalgs, "_:", 1024));
+        put(
+            "AETHER_TLS_CERT_COMPRESSION",
+            safe_opt(&self.tls_cert_compression, ":", 64).filter(|v| {
+                v.split(':').all(|p| matches!(p, "zlib" | "brotli" | "zstd"))
+            }),
+        );
+        put(
+            "AETHER_TLS_ALPS",
+            match self.tls_alps.trim() {
+                "new" => Some("new".to_string()),
+                "old" => Some("old".to_string()),
+                _ => None,
+            },
+        );
+        put(
+            "AETHER_TLS_TRUST_ANCHORS",
+            safe_opt(&self.tls_trust_anchors, ".:", 512).filter(|v| {
+                v.split(':').all(|id| {
+                    !id.is_empty() && id.split('.').all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+                })
+            }),
+        );
+        put(
+            "AETHER_TLS_SERVER_PADDING",
+            self.tls_server_padding
+                .trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|n| *n <= 65_535)
+                .map(|n| n.to_string()),
+        );
+        for (on, key) in [
+            (self.disable_grease, "AETHER_DISABLE_GREASE"),
+            (self.enable_grease_sigalgs, "AETHER_ENABLE_GREASE_SIGALGS"),
+            (self.enable_ech_grease, "AETHER_ENABLE_ECH_GREASE"),
+            (self.disable_ocsp_stapling, "AETHER_DISABLE_OCSP_STAPLING"),
+            (self.disable_sct, "AETHER_DISABLE_SCT"),
+            (self.disable_session_ticket, "AETHER_DISABLE_SESSION_TICKET"),
+            (self.disable_extension_permutation, "AETHER_DISABLE_EXTENSION_PERMUTATION"),
+        ] {
+            if on {
+                env.insert(key.to_string(), "1".to_string());
+            }
+        }
+        env
+    }
+}
+
 fn clean_list(items: &[String]) -> Vec<String> {
     items
         .iter()
@@ -2064,6 +2218,62 @@ mod tests {
         assert!(p.to_args().iter().all(|a| !a.starts_with("--tor")));
         assert!(p.to_env().keys().all(|k| !k.starts_with("AETHER_TOR")));
         assert_eq!(p.effective_protocol(), p.protocol);
+    }
+
+    #[test]
+    fn tls24_default_profile_sends_nothing() {
+        let p = ConnectionProfile::default();
+        assert!(p.tls24_env().is_empty());
+        let a = p.to_env_with_caps(CoreCaps::all());
+        assert!(a.keys().all(|k| !k.starts_with("AETHER_TLS") && !k.starts_with("AETHER_API")));
+    }
+
+    #[test]
+    fn tls24_gated_by_core_version() {
+        assert!(!CoreCaps::for_version(2, 3).tls24);
+        assert!(CoreCaps::for_version(2, 4).tls24);
+        let mut p = ConnectionProfile::default();
+        p.api_sni = "example.com".into();
+        p.disable_sct = true;
+        assert!(!p.to_env_with_caps(CoreCaps::for_version(2, 3)).contains_key("AETHER_API_SNI"));
+        let e = p.to_env_with_caps(CoreCaps::for_version(2, 4));
+        assert_eq!(e.get("AETHER_API_SNI").map(String::as_str), Some("example.com"));
+        assert_eq!(e.get("AETHER_DISABLE_SCT").map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn tls24_values_are_sanitised() {
+        let mut p = ConnectionProfile::default();
+        p.api_host = "evil host; rm".into();
+        p.tls_ciphers = "A B".into();
+        p.tls_alps = "bogus".into();
+        p.tls_cert_compression = "brotli:gzip".into();
+        p.tls_trust_anchors = "11129.9.1:abc".into();
+        p.tls_server_padding = "70000".into();
+        assert!(p.tls24_env().is_empty());
+        p.tls_alps = "new".into();
+        p.tls_cert_compression = "zlib:brotli".into();
+        p.tls_trust_anchors = "11129.9.1:11129.9.4".into();
+        p.tls_server_padding = "6000".into();
+        p.tls_verify = true;
+        p.tls13_ciphers = "TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256".into();
+        let e = p.tls24_env();
+        assert_eq!(e.len(), 6);
+        assert_eq!(e["AETHER_TLS_SERVER_PADDING"], "6000");
+        assert_eq!(e["AETHER_TLS_VERIFY"], "1");
+    }
+
+    #[test]
+    fn tls24_profile_json_roundtrip_and_old_profile_loads() {
+        let old = r#"{"upstream":"","routeSniff":true}"#;
+        let p: ConnectionProfile = serde_json::from_str(old).unwrap();
+        assert!(!p.tls_verify && p.api_sni.is_empty());
+        let mut q = ConnectionProfile::default();
+        q.masque_sni = "a.example".into();
+        q.disable_grease = true;
+        let j = serde_json::to_string(&q).unwrap();
+        assert!(j.contains("\"masqueSni\"") && j.contains("\"disableGrease\":true"));
+        assert_eq!(serde_json::from_str::<ConnectionProfile>(&j).unwrap(), q);
     }
 }
 

@@ -29,6 +29,7 @@ const CHROME_CANDIDATES = [
   '/usr/bin/google-chrome',
   '/usr/bin/google-chrome-stable',
   '/usr/bin/chromium',
+  '/usr/local/bin/chromium',
   '/usr/bin/chromium-browser',
   '/snap/bin/chromium',
   '/tmp/chrome-headless-shell-linux64/chrome-headless-shell',
@@ -55,8 +56,8 @@ if (CHROME_CANDIDATES.length === 0) {
 // اگر روزی minHeight عوض شد، این تست همان لحظه دربارهٔ اندازهٔ جدید حرف بزند.
 const conf = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url)))
 const win = conf.app?.windows?.[0] ?? {}
-const MIN_W = win.minWidth ?? 480
-const MIN_H = win.minHeight ?? 640
+const MIN_W = win.minWidth ?? 360
+const MIN_H = win.minHeight ?? 720
 // decorations:false → نوار عنوانِ خودِ برنامه داخل همین ناحیهٔ وب است، پس کلِ
 // ارتفاع پنجره برای وب است و چیزی کم نمی‌شود.
 const CHROME_BAR = win.decorations === false ? 0 : 32
@@ -216,8 +217,9 @@ async function probe(w, h, lang) {
   // این را نمی‌بیند (ارتفاع همه صفر است)؛ فقط اندازه‌گیریِ واقعی می‌بیند.
   out.seg = await page.evaluate(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    const tab = document.querySelector('.rail__item[data-tab="advanced"]')
-    if (!tab) return { reached: false, why: 'تبِ Settings در ریل نیست' }
+    // ۱.۴.۰-mobile: ناوبری از کشو (drawer) است، نه ریل.
+    const tab = document.querySelector('.drawer__item[data-tab="advanced"]')
+    if (!tab) return { reached: false, why: 'آیتمِ Settings در کشو نیست' }
     tab.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await wait(150)
     const rows = [...document.querySelectorAll('.setrow__title')]
@@ -257,7 +259,7 @@ const check = (ok, what) => { console.log((ok ? '  ok   ' : '  FAIL ') + what); 
 
 for (const [label, w, h] of [
   ['کوچک‌ترین پنجرهٔ مجاز', MIN_W, MIN_H - CHROME_BAR],
-  ['پنجرهٔ پیش‌فرض', win.width ?? 1180, (win.height ?? 780) - CHROME_BAR],
+  ['پنجرهٔ پیش‌فرض (قاب موبایل)', win.width ?? 390, (win.height ?? 820) - CHROME_BAR],
 ]) for (const lang of ['en', 'fa']) {
   const r = await probe(w, h, lang)
   console.log(`\n── ${label} — ناحیهٔ وب ${w}\u00d7${h} — ${lang}`)

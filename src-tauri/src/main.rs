@@ -45,16 +45,21 @@ mod log;
 mod login_code;
 mod mini_https;
 mod ping;
+mod uplink;
+mod uplink_policy;
 mod probe;
 mod procguard;
 mod profile;
 mod provenance;
+pub mod presets;
+mod savedialog;
 mod pt;
 mod secret_store;
 mod share;
 mod share_guard;
 mod share_pages;
 mod smart_auto;
+mod smart_plus;
 mod smart_lists;
 mod smart_routes;
 mod state;
@@ -86,6 +91,7 @@ const TICK: Duration = Duration::from_millis(200);
 
 pub struct AppState {
     controller: Mutex<AetherController>,
+    presets: Mutex<presets::PresetStore>,
     /// The most recent snapshot, readable WITHOUT the controller lock.
     ///
     /// # Why this cache exists
@@ -101,6 +107,27 @@ pub struct AppState {
     /// worker thread — see [`ai_session`] for why none of that work may happen
     /// on the IPC thread.
     ai: Arc<AiSession>,
+}
+
+/// A failed background bootstrap must reach the UI rather than leave a blank window.
+#[derive(Default)]
+struct StartupStatus(parking_lot::Mutex<Option<String>>);
+
+#[tauri::command]
+async fn startup_ready(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let began = Instant::now();
+        loop {
+            if app.try_state::<AppState>().is_some() { return Ok(()); }
+            if let Some(status) = app.try_state::<StartupStatus>() {
+                if let Some(error) = status.0.lock().clone() { return Err(error); }
+            }
+            if began.elapsed() > Duration::from_secs(90) {
+                return Err("Aether initialization timed out; restart the app and check diagnostics".into());
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }).await.map_err(|_| "Startup worker interrupted".to_owned())?
 }
 
 /// Publishes a snapshot: refresh the lock-free cache, and push it to the UI only
@@ -190,6 +217,107 @@ fn set_profile(app: State<'_, AppState>, profile: ConnectionProfile) -> Result<(
         .unwrap()
         .set_profile(profile)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn preset_state(app: State<'_, AppState>) -> serde_json::Value {
+    app.presets.lock().unwrap().data.view()
+}
+
+#[tauri::command]
+fn preset_action(handle: AppHandle, app: State<'_, AppState>, action:String,
+    id:Option<String>, name:Option<String>) -> Result<serde_json::Value,String> {
+    let mut controller=app.controller.lock().map_err(|_|"Controller unavailable")?;
+    if !matches!(controller.snapshot().state, state::ConnectionState::Disconnected | state::ConnectionState::Failed) {
+        return Err("Disconnect before changing connection profiles".into());
+    }
+    let current=controller.profile();
+    let mut store=app.presets.lock().map_err(|_|"Profile store unavailable")?;
+    let live_custom=presets::CustomSel::from_state(&custom::store::snapshot());
+    let (next,target,custom_apply)=store.data.change_with(&action,id.as_deref().unwrap_or(""),name.as_deref().unwrap_or(""),
+        serde_json::to_value(&current).map_err(|e|e.to_string())?,live_custom)?;
+    // Validate the target before writing either store. Secrets keep the existing
+    // controller semantics (they are not serialized into settings snapshots).
+    let target=target.map(serde_json::from_value::<ConnectionProfile>).transpose().map_err(|e|e.to_string())?;
+    if let Some(profile)=target {
+        // The clean "default" profile also clears in-memory Zero Trust secrets;
+        // set_profile treats an empty secret as "keep", which would leak the
+        // previous profile's token into the factory settings.
+        let is_factory=serde_json::to_value(&profile).ok().as_ref()==Some(&presets::factory_profile());
+        if is_factory { controller.reset_profile().map(|_|()).map_err(|e|e.to_string())?; }
+        else { controller.set_profile(profile).map_err(|e|e.to_string())?; }
+    }
+    if let Err(error)=store.persist(&next) {
+        let _=controller.set_profile(current);
+        return Err(error);
+    }
+    store.data=next;
+    if let Some(sel)=custom_apply {
+        let s=sel.apply();
+        let _=handle.emit("aether://custom", &custom_commands::view(&s));
+    }
+    let profile=controller.profile();
+    let _=handle.emit("aether://profile", &profile);
+    Ok(store.data.view())
+}
+
+/// Non-secret export of the selected (active) profile as JSON text.
+#[tauri::command]
+fn preset_export(app: State<'_, AppState>) -> Result<String,String> {
+    let current=app.controller.lock().map_err(|_|"Controller unavailable")?.profile();
+    let store=app.presets.lock().map_err(|_|"Profile store unavailable")?;
+    let live=presets::CustomSel::from_state(&custom::store::snapshot());
+    store.data.export_selected(serde_json::to_value(&current).map_err(|e|e.to_string())?,&live)
+}
+
+/// Export with a native "Save as" dialog. Returns the saved file name, or
+/// `null` when the user cancelled (nothing is written in that case).
+#[tauri::command]
+async fn preset_export_save(window: tauri::WebviewWindow, app: State<'_, AppState>) -> Result<Option<String>,String> {
+    let text=preset_export(app)?;
+    let owner=window.hwnd().map(|h|h.0 as isize).unwrap_or(0);
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path)=savedialog::pick_save_path(owner,"Aether-1.4.0-profile.json")? else { return Ok(None) };
+        std::fs::write(&path,text.as_bytes()).map_err(|e|format!("Could not save the file: {e}"))?;
+        Ok(path.file_name().map(|n|n.to_string_lossy().into_owned()))
+    }).await.map_err(|e|e.to_string())?
+}
+
+/// Imports profiles from JSON text. The first imported profile keeps its exact
+/// name, becomes the active profile and its saved settings are applied right
+/// away. While a connection is running (settings must not change underneath
+/// it) the profiles are only appended and `applied` is `false`.
+#[tauri::command]
+fn preset_import(handle: AppHandle, app: State<'_, AppState>, text:String) -> Result<serde_json::Value,String> {
+    let mut controller=app.controller.lock().map_err(|_|"Controller unavailable")?;
+    let idle=matches!(controller.snapshot().state, state::ConnectionState::Disconnected | state::ConnectionState::Failed);
+    let mut store=app.presets.lock().map_err(|_|"Profile store unavailable")?;
+    if !idle {
+        let (next,_count)=store.data.import(&text)?;
+        store.persist(&next)?;
+        store.data=next;
+        let mut view=store.data.view();view["applied"]=serde_json::json!(false);
+        return Ok(view);
+    }
+    let current=controller.profile();
+    let live_custom=presets::CustomSel::from_state(&custom::store::snapshot());
+    let (next,target,sel,_count)=store.data.import_and_select(&text,
+        serde_json::to_value(&current).map_err(|e|e.to_string())?,live_custom)?;
+    let profile:ConnectionProfile=serde_json::from_value(target).map_err(|e|e.to_string())?;
+    // Same path as selecting a profile: validate, apply, persist, roll back on failure.
+    let is_factory=serde_json::to_value(&profile).ok().as_ref()==Some(&presets::factory_profile());
+    if is_factory { controller.reset_profile().map(|_|()).map_err(|e|e.to_string())?; }
+    else { controller.set_profile(profile).map_err(|e|e.to_string())?; }
+    if let Err(error)=store.persist(&next) {
+        let _=controller.set_profile(current);
+        return Err(error);
+    }
+    store.data=next;
+    let s=sel.apply();
+    let _=handle.emit("aether://custom", &custom_commands::view(&s));
+    let _=handle.emit("aether://profile", &controller.profile());
+    let mut view=store.data.view();view["applied"]=serde_json::json!(true);
+    Ok(view)
 }
 
 /// v8: "Reset to defaults" - persists the factory profile and returns it
@@ -316,6 +444,8 @@ fn core_caps() -> serde_json::Value {
         // ۱.۲.۵ — بدون این، پنل چهار بک‌اند تور را روی هستهٔ قدیمی هم پیشنهاد
         // می‌داد و کاربر تنظیمی را پر می‌کرد که هرگز به موتور نمی‌رسد.
         "tor": caps.tor,
+        // Core 2.4.0 — TLS fingerprint / API routing options.
+        "tls24": caps.tls24,
     })
 }
 
@@ -1201,13 +1331,10 @@ fn main() {
             let data_dir = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             log::DiagnosticsLog::init(&data_dir);
-            // AETHER-APP-PATCH custom-configs: انبارِ مهرشدهٔ کانفیگ‌ها، پیش از
-            // کنترلر (اتصالِ اول ممکن است همان لحظه آن را بخواهد).
-            custom::store::init(&data_dir);
-
-            let controller = AetherController::new(&data_dir);
-            let first = controller.snapshot();
+            // Only small local preferences are needed on the UI thread. Engine
+            // staging/copying and sealed stores are initialized on the worker below.
             let prefs = Arc::new(store::PrefsStore::new(&data_dir));
+            app.manage(StartupStatus::default());
 
             // پیش از نخستین فریم: اندازه/جای پنجره از اجرای قبلی، و جا دادنش
             // در نمایشگرِ همین لحظه. بعد از نمایش انجام‌دادنش یعنی کاربر یک
@@ -1232,12 +1359,6 @@ fn main() {
                     _ => {}
                 });
             }
-            app.manage(AppState {
-                controller: Mutex::new(controller),
-                latest: parking_lot::Mutex::new(Arc::new(first)),
-                ai: Arc::new(AiSession::new(&data_dir, prefs)),
-            });
-
             // Equivalent of collecting StateFlow in Compose, with two rules the
             // old loop did not have:
             //
@@ -1249,7 +1370,26 @@ fn main() {
             //     with nothing in it different. That is most of the background
             //     cost the UI was competing with.
             let handle = app.handle().clone();
-            std::thread::spawn(move || {
+            std::thread::Builder::new().name("aether-bootstrap".into()).spawn(move || {
+                // AetherController::new stages the engine bundle (large disk I/O).
+                // Do not gate creation/painting of WebView2 on that work.
+                let initialized = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    custom::store::init(&data_dir);
+                    let controller = AetherController::new(&data_dir);
+                    let first = controller.snapshot();
+                    let preset_store = presets::PresetStore::new(&data_dir,
+                        serde_json::to_value(controller.profile()).unwrap_or_default());
+                    handle.manage(AppState {
+                        presets: Mutex::new(preset_store),
+                        controller: Mutex::new(controller),
+                        latest: parking_lot::Mutex::new(Arc::new(first)),
+                        ai: Arc::new(AiSession::new(&data_dir, prefs)),
+                    });
+                }));
+                if initialized.is_err() {
+                    *handle.state::<StartupStatus>().0.lock() = Some("Aether background initialization failed".into());
+                    return;
+                }
                 let mut last: Option<Arc<Snapshot>> = None;
                 let mut last_emit_at: Option<Instant> = None;
                 // >>> AETHER-APP-PATCH ai-gate-follows-tunnel (1.3.0)
@@ -1289,14 +1429,28 @@ fn main() {
                     // not then wait another 200ms before the next one.
                     std::thread::sleep(TICK.saturating_sub(began.elapsed()));
                 }
-            });
+            })?;
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            startup_ready,
+            preset_state,
+            preset_action,
+            preset_export,
+            preset_export_save,
+            preset_import,
             custom_commands::cc_state,
+            custom_commands::cc_tab_save,
+            custom_commands::cc_tab_delete,
+            custom_commands::cc_move,
+            custom_commands::cc_subscription_save,
+            custom_commands::cc_subscription_refresh,
+            custom_commands::cc_subscription_delete,
             custom_commands::cc_import_text,
             custom_commands::cc_import_file,
+            custom_commands::cc_import_bytes,
+            custom_commands::cc_read_qr_image,
             custom_commands::cc_import_path,
             custom_commands::cc_select,
             custom_commands::cc_set_mode,
@@ -1308,6 +1462,14 @@ fn main() {
             custom_commands::cc_delete_all,
             custom_commands::cc_ping,
             custom_commands::cc_ping_all,
+            custom_commands::cc_scan_options,
+            custom_commands::cc_scan_set_options,
+            custom_commands::cc_scan_state,
+            custom_commands::cc_scan_start,
+            custom_commands::cc_scan_stop,
+            custom_commands::cc_scan_dismiss,
+            custom_commands::cc_speed_test,
+            custom_commands::cc_speed_state,
             share_info,
             share_set_auth,
             share_set_credentials,

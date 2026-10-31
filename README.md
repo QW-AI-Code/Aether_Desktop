@@ -1,3 +1,15 @@
+# Current release: Aether Desktop 1.4.0
+
+Core: 2.4.0. Portable mobile networking changes: 1.6.0. Read `release-notes.md` and `docs/PORT_1.4.0_REPORT.fa.md` for features, exclusions and actual validation. NPVS supports authenticated v5 app-key/password exports; device-bound/attested exports are rejected. This source includes a reviewed core overlay; old pristine-core descriptions below are historical, not the current release status.
+
+## What's new in 1.4.0
+
+Authenticated NPVS v5, grouped config tables, strict Real Delay, IPv4/country enrichment, optional initial verification and a reviewed mobile core overlay. See [release notes](release-notes.md) and the [technical report](docs/PORT_1.4.0_REPORT.fa.md), including SmartPlus parallel lanes, per-network tactics memory, adaptive Psiphon upload control and the exact validation/release gates.
+
+**Headline change in 1.4.0 — the Windows UI and dimensions now match mobile 1.6.0** (settings cards, custom-configs page, RTL fixes; see [release notes](release-notes.md#headline-change-windows-ui-and-dimensions-now-match-mobile-160)).
+
+**Security audit (source-level, not a pen test): 70/100.** Main open items: core `Cargo.lock` advisories (quinn-proto, rustls 0.23.43), the Clean-IP scanner accepting any certificate, unpinned CI actions and unsigned installers. Full table in the [release notes](release-notes.md).
+
 <div align="center">
 
 # Aether Desktop
@@ -12,18 +24,18 @@ Windows desktop tunnel client with mandatory leak protection and a resilient con
 
 ---
 
-## What's new in 1.3.0
+## Retained features from the 1.3.0 release
 
-[Full 1.3.0 release notes](release-notes.md).
+[Full 1.4.0 release notes](release-notes.md).
 
-The app version stays **1.3.0**. This release brings three features over from Aether for Android **1.5.0** — **Custom configs**, **Zero Trust sign-in** and the **redesigned LAN share** — with the same behaviour and wording as on the phone, and bundles the **unmodified Aether Core 2.3.0**. Android's *phone hotspot* share mode is intentionally **not** part of the Windows edition. Saved profiles and the chosen backend are kept.
+The app version stays **1.4.0**. This release brings three features over from Aether for Android **1.5.0** — **Custom configs**, **Zero Trust sign-in** and the **redesigned LAN share** — with the same behaviour and wording as on the phone, and bundles the **Aether Core 2.4.0 with the reviewed 1.4.0 overlay**. Android's *phone hotspot* share mode is intentionally **not** part of the Windows edition. Saved profiles and the chosen backend are kept.
 
 ### Custom configs (new, off by default)
 
 Ported from Aether for Android **1.5.0**. Settings → **Custom configs**. While the switch is off (the default) nothing changes: the six existing modes, profiles and the engine behave exactly as before.
 
 - **What you can import.** Share links `vless://`, `vmess://`, `trojan://`, `ss://`, `socks://` / `socks5://`, `wireguard://` / `wg://`; a full **Xray JSON** config (any outbound Xray supports, e.g. Hysteria2, XHTTP, Reality); Base64 or plain **subscription** text; a **subscription URL** (`https://` only, at most 5 redirects, 2 MB, 20 s; when connected it is fetched through the tunnel); and **NapsternetV / Npv Tunnel `.npvt` files**.
-- **How you import.** Paste into the box and press **Import**, pick a file, or drag a file onto the drop zone. **There is no QR scanning on Windows** (no camera path in the desktop app); paste the link instead.
+- **How you import.** Paste into the box and press **Import**, pick a file, or drag a file onto the drop zone. **QR from an image is supported locally** (PNG/JPEG/WebP; no camera permission or remote image upload). Paste an HTTPS subscription URL to save a refreshable subscription.
 - **`.npvt` locks are respected.** The file is decoded byte-for-byte like Android. A config locked to another device, an expired one, or one marked *mobile only* is rejected with a clear reason; a password-protected file asks for its password. A locked config's raw link is never shown, copied or edited.
 - **Saved list.** Select, rename, edit (unlocked only), copy link, delete, and a separate **Delete all configs**. The list is sealed with Windows DPAPI (`custom_configs.bin` in the data folder); the web UI never sees the raw outbound.
 - **15 chain modes.** The config can run alone, in front of, or behind the existing engines:
@@ -44,7 +56,7 @@ Ported from Aether for Android **1.5.0**. Settings → **Custom configs**. While
 - **The `Config → Tor` fix.** With sniffing on, Xray replaced each connection's destination with the TLS SNI. Tor's link handshake uses a fake SNI (`www.<random>.com`), so every guard dial became a lookup of a name that does not exist (`tls handshake eof`, *Could not connect to guard*, Tor stuck at 93 %). Sniffing is now disabled in every generated config; unit tests lock this for all three positions.
 - **Safety.** xray runs as a hidden child in the app's Job Object (killed with the app), listens on loopback only, gets a config file that is deleted when it stops, and is restarted at most 5 times. DNS stays inside the tunnel; when xray dials through the engine or Tor the server name is passed unresolved. The leak guard only opens the extra egress xray needs while a custom config runs. Split tunnelling stays off by default and the MTU default stays 1280.
 
-### Custom configs: chain and ping fixes (1.3.0)
+### Custom configs: chain and ping fixes (1.4.0)
 
 - **`Config → Psiphon` now goes through the config.** Psiphon was started without an upstream, so it dialled directly and the chain had "no tunnel underneath it". It now gets the config's local SOCKS port (`AETHER_UPSTREAM`); the log shows `psiphon dials out through the upstream proxy`.
 - **Psiphon `WSAEACCES` (10013).** `Psiphon → Config` purges stale Aether firewall rules left by an earlier crash before it starts, and the egress filter lets the Psiphon/xray hop out. If Windows still answers *forbidden by its access permissions*, the app logs once which rule or profile (`BlockOutbound`) blocks it and what to do.
@@ -73,9 +85,9 @@ Ported from Aether for Android **1.5.0**. Settings → **Custom configs**. While
 - **Setup page.** `http://<computer address>:10811/` gives bilingual (Persian/English) instructions, the PAC file (`/proxy.pac`, `/wpad.dat`), a live WebRTC leak test and one-click WebRTC locks for Windows, Firefox, macOS and Linux. The pages load nothing from the internet.
 - **Zero-leak guard.** Shared devices cannot reach private or local addresses of the host's network, never receive *Direct* (bypass) rules, identifying proxy headers are removed, and UDP through SOCKS5 is offered only when the engine can carry it.
 
-### Core, routing and settings (carried over in 1.3.0)
+### Core, routing and settings (carried over in 1.4.0)
 
-- **Aether Core 2.3.0, unmodified.** All Tor modes use the bundled `tor.exe`; the protocol tile shows `Tor → Psiphon` instead of `SMART`. The Psiphon child is built from the compatible CluvexStudio commit `83aa73b9b982e7421e00117f5b0c5aceb5dda452` and receives the bundled server entries through `AETHER_PSIPHON_SERVER_ENTRIES`.
+- **Aether Core 2.4.0 (reviewed 1.4.0 overlay).** All Tor modes use the bundled `tor.exe`; the protocol tile shows `Tor → Psiphon` instead of `SMART`. The Psiphon child is built from the compatible CluvexStudio commit `83aa73b9b982e7421e00117f5b0c5aceb5dda452` and receives the bundled server entries through `AETHER_PSIPHON_SERVER_ENTRIES`.
 - **DNS and routing.** *Bypass Iranian sites* and *Block ads and trackers* are independent opt-in switches with bundled lists and a weekly refresh through the tunnel. Iranian hosts outside `.ir` are checked with DNS-over-HTTPS through the tunnel before going direct. In `Aether → Psiphon` and `Tor → Psiphon`, rules are applied at the local bridge.
 - **A working server is no longer thrown away.** The app used to tell the engine to reuse the remembered server only if it answered faster than about **300 ms** — and on the networks reports actually came from, nothing answers that fast, so the remembered server was discarded every time and each reconnect paid for a full scan. That check is now **off by default**, so a remembered server that answers is used, as the engine always did on its own. If you are on a fast connection and want the app to look for the best server, the switch *Only reuse a fast endpoint* is still under **Transport & anti-DPI** — with limits that now match real networks (2000 ms / 5000 ms direct, 1200 ms / 3500 ms chained).
 - **Your own ECH setting.** If you have an `ECHConfigList`, you can paste it under **Transport & anti-DPI** instead of letting the app fetch one — useful where your network blocks exactly that default fetch. Pointing ECH at a different domain, as v2rayNG does, is not possible: the engine does not accept a domain there.
@@ -85,13 +97,13 @@ Ported from Aether for Android **1.5.0**. Settings → **Custom configs**. While
 
 ### Packaging
 
-Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives** plus `SHA256SUMS.txt`; no `.msi`. The version is **1.3.0** in every manifest, and the CI preflight checks this. Real tunnel and network behaviour still needs testing on Windows.
+Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives** plus `SHA256SUMS.txt`; no `.msi`. The version is **1.4.0** in every manifest, and the CI preflight checks this. Real tunnel and network behaviour still needs testing on Windows.
 
 ---
 
 <div dir="rtl" align="right">
 <h2 dir="rtl" align="right">تازه‌های نسخهٔ ویندوز ۱.۳.۰</h2>
-<p dir="rtl" align="right">نسخهٔ برنامه همچنان <bdi>1.3.0</bdi> است. این انتشار سه قابلیت را از <bdi>Aether</bdi> اندروید <bdi>1.5.0</bdi> به ویندوز می‌آورد — <strong>کانفیگ‌های سفارشی</strong>، <strong>ورود <bdi>Zero Trust</bdi></strong> و <strong>اشتراک بازطراحی‌شده روی شبکهٔ محلی</strong> — با همان رفتار و همان متن‌های گوشی، و هستهٔ <strong>دست‌نخوردهٔ <bdi>Aether Core 2.3.0</bdi></strong> را همراه دارد. حالت «هات‌اسپات گوشی» اندروید عمداً در نسخهٔ ویندوز <strong>نیست</strong>. پروفایل‌های ذخیره‌شده و بک‌اند انتخابی حفظ می‌شوند.</p>
+<p dir="rtl" align="right">نسخهٔ برنامه همچنان <bdi>1.4.0</bdi> است. این انتشار سه قابلیت را از <bdi>Aether</bdi> اندروید <bdi>1.5.0</bdi> به ویندوز می‌آورد — <strong>کانفیگ‌های سفارشی</strong>، <strong>ورود <bdi>Zero Trust</bdi></strong> و <strong>اشتراک بازطراحی‌شده روی شبکهٔ محلی</strong> — با همان رفتار و همان متن‌های گوشی، و هستهٔ <strong>دست‌نخوردهٔ <bdi>Aether Core 2.4.0</bdi></strong> را همراه دارد. حالت «هات‌اسپات گوشی» اندروید عمداً در نسخهٔ ویندوز <strong>نیست</strong>. پروفایل‌های ذخیره‌شده و بک‌اند انتخابی حفظ می‌شوند.</p>
 <h3 dir="rtl" align="right">کانفیگ‌های سفارشی: رفع زنجیره و پینگ (۱.۳.۰)</h3>
 <ul dir="rtl" align="right">
 <li><strong><span dir="ltr">Config → Psiphon</span> حالا واقعاً از کانفیگ رد می‌شود:</strong> سایفون بدون <bdi>upstream</bdi> اجرا می‌شد و مستقیم وصل می‌شد. حالا پورت <bdi>SOCKS</bdi> محلی کانفیگ (<bdi>AETHER_UPSTREAM</bdi>) به آن داده می‌شود و در لاگ <span dir="ltr">psiphon dials out through the upstream proxy</span> دیده می‌شود.</li>
@@ -123,7 +135,7 @@ Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives
 </ul>
 <h3 dir="rtl" align="right">هسته، مسیریابی و تنظیمات (از پیش در ۱.۳.۰)</h3>
 <ul dir="rtl" align="right">
-<li><strong>هستهٔ دست‌نخوردهٔ <bdi>Aether Core 2.3.0</bdi>:</strong> همهٔ حالت‌های تور از <bdi>tor.exe</bdi> همراه برنامه استفاده می‌کنند و کاشی پروتکل به‌جای <bdi>SMART</bdi> عنوان <bdi>Tor → Psiphon</bdi> را نشان می‌دهد. فرزند سایفون از کامیت سازگار <bdi>CluvexStudio</bdi> ساخته می‌شود و سرورهای همراه را از راه <bdi>AETHER_PSIPHON_SERVER_ENTRIES</bdi> می‌گیرد.</li>
+<li><strong>هستهٔ دست‌نخوردهٔ <bdi>Aether Core 2.4.0</bdi>:</strong> همهٔ حالت‌های تور از <bdi>tor.exe</bdi> همراه برنامه استفاده می‌کنند و کاشی پروتکل به‌جای <bdi>SMART</bdi> عنوان <bdi>Tor → Psiphon</bdi> را نشان می‌دهد. فرزند سایفون از کامیت سازگار <bdi>CluvexStudio</bdi> ساخته می‌شود و سرورهای همراه را از راه <bdi>AETHER_PSIPHON_SERVER_ENTRIES</bdi> می‌گیرد.</li>
 <li><strong><bdi>DNS</bdi> و مسیریابی:</strong> «بای‌پس سایت‌های ایرانی» و «حذف تبلیغات و ردیاب‌ها» دو کلید اختیاری و مستقل‌اند، با فهرست‌های همراه و به‌روزرسانی هفتگی از داخل تونل. دامنه‌های ایرانیِ غیر از <bdi>.ir</bdi> پیش از مستقیم شدن با <bdi>DNS-over-HTTPS</bdi> از داخل تونل بررسی می‌شوند. در <bdi>Aether → Psiphon</bdi> و <bdi>Tor → Psiphon</bdi> قواعد در پل محلی اعمال می‌شوند.</li>
 <li><strong>سروری که کار می‌کند دیگر دور ریخته نمی‌شود:</strong> برنامه به موتور می‌گفت سرورِ به‌خاطرسپرده را فقط در صورتی دوباره استفاده کن که سریع‌تر از حدود <strong>۳۰۰ میلی‌ثانیه</strong> جواب بدهد — و در شبکه‌هایی که واقعاً از آن‌ها گزارش رسیده، هیچ چیزی این‌قدر سریع جواب نمی‌دهد. پس سرورِ به‌خاطرسپرده هر بار دور ریخته می‌شد و هر اتصال مجدد هزینهٔ یک جست‌وجوی کامل را می‌پرداخت. آن بررسی حالا <strong>به‌طور پیش‌فرض خاموش</strong> است، پس سرورِ به‌خاطرسپرده‌ای که جواب می‌دهد، همان‌طور که موتور همیشه خودش عمل می‌کرد، استفاده می‌شود. اگر روی اتصال سریعی هستید و می‌خواهید برنامه دنبال بهترین سرور بگردد، سوئیچ «فقط اندپوینت سریع را دوباره استفاده کن» هنوز زیر «ترابرد و ضد <bdi>DPI</bdi>» هست — با حدودی که این بار با شبکه‌های واقعی می‌خواند (<bdi>2000/5000</bdi> میلی‌ثانیه مستقیم و <bdi>1200/3500</bdi> میلی‌ثانیه زنجیره‌ای).</li>
 <li><strong>تنظیم <bdi>ECH</bdi> خودتان:</strong> اگر یک <bdi>ECHConfigList</bdi> دارید، می‌توانید زیر «ترابرد و ضد <bdi>DPI</bdi>» بچسبانیدش به‌جای اینکه برنامه خودش یکی بگیرد — جایی به کار می‌آید که شبکه‌تان دقیقاً همان گرفتنِ پیش‌فرض را بلاک می‌کند. نشانه‌گرفتن <bdi>ECH</bdi> به یک دامنهٔ دیگر، آن‌طور که <bdi>v2rayNG</bdi> می‌کند، ممکن نیست: موتور در آن‌جا دامنه نمی‌پذیرد.</li>
@@ -132,7 +144,7 @@ Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives
 <li><strong>حفظ بک‌اند انتخابی:</strong> <bdi>Aether</bdi> فقط پیش‌فرض پروفایل تازه است و بستن و باز کردن برنامه انتخاب کاربر را عوض نمی‌کند.</li>
 </ul>
 <h3 dir="rtl" align="right">بسته‌ها</h3>
-<p dir="rtl" align="right">خروجی‌ها نصب‌کننده‌های <bdi>x64/x86</bdi> با پسوند <bdi>.exe</bdi> و بسته‌های پرتابل <bdi>.zip</bdi> به‌همراه <bdi>SHA256SUMS.txt</bdi> هستند؛ فایل <bdi>.msi</bdi> وجود ندارد. نسخه در همهٔ فایل‌های مشخصات <bdi>1.3.0</bdi> است و پیش‌بررسی <bdi>CI</bdi> این را کنترل می‌کند. رفتار واقعی تونل و شبکه همچنان باید روی ویندوز آزموده شود.</p>
+<p dir="rtl" align="right">خروجی‌ها نصب‌کننده‌های <bdi>x64/x86</bdi> با پسوند <bdi>.exe</bdi> و بسته‌های پرتابل <bdi>.zip</bdi> به‌همراه <bdi>SHA256SUMS.txt</bdi> هستند؛ فایل <bdi>.msi</bdi> وجود ندارد. نسخه در همهٔ فایل‌های مشخصات <bdi>1.4.0</bdi> است و پیش‌بررسی <bdi>CI</bdi> این را کنترل می‌کند. رفتار واقعی تونل و شبکه همچنان باید روی ویندوز آزموده شود.</p>
 </div>
 
 
@@ -142,7 +154,7 @@ Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives
 
 **Historical sections below describe previous releases.** Their references to a
 separately launched Psiphon stage or desktop-side server rotation do not describe
-version 1.3.0: the core owns that child process and its retries. A country filter
+version 1.4.0: the core owns that child process and its retries. A country filter
 is strict in the current core; choose Automatic if that region has no server.
 
 ## What's new in 1.2.5
@@ -151,7 +163,7 @@ is strict in the current core; choose Automatic if that region has no server.
 
 ### New in this release
 
-**Tor, ported from Aether Mobile 1.3.0.** Four backends in Advanced → *Backend*, each mapping onto a flag of the core itself rather than onto logic of our own:
+**Tor, ported from Aether Mobile 1.4.0.** Four backends in Advanced → *Backend*, each mapping onto a flag of the core itself rather than onto logic of our own:
 
 | Backend | Core flag | Exit | Tunnel under Tor |
 |---|---|---|---|
@@ -170,7 +182,7 @@ is strict in the current core; choose Automatic if that region has no server.
 
 **The pluggable transport ships with the app — and a published build cannot go out without it.** `obfs4` cannot run without a lyrebird binary, so the build compiles lyrebird 0.6.1 for Windows (`CGO_ENABLED=0`) and stages it in `engine/pt/`. A failure there still does not break a pull-request build, but a **published** build is now gated: if `engine/pt/lyrebird.exe` is missing or implausibly small, the release stops rather than shipping an empty transport directory. The engine is told about both locations it may live in, and the transport counts as present only when the executable itself is there.
 
-**Defaults matched to Aether Mobile 1.3.0.** Scan mode now starts at **Balanced** and the reconnect limit at **5 attempts**, as on mobile. The Smart Auto ladder keeps scanning each rung in **Turbo**, so a faster default does not turn into a slower search.
+**Defaults matched to Aether Mobile 1.4.0.** Scan mode now starts at **Balanced** and the reconnect limit at **5 attempts**, as on mobile. The Smart Auto ladder keeps scanning each rung in **Turbo**, so a faster default does not turn into a slower search.
 
 **Settings the engine changes appear immediately.** When a connection attempt rewrites the profile, every profile-dependent panel is rebuilt from the new values — deferred while you are typing in a field, so nothing is pulled out from under you.
 
@@ -556,10 +568,10 @@ All files are produced automatically by GitHub Actions and published to
 
 | File | Description |
 |---|---|
-| `Aether-Setup-1.3.0-x64.exe` | Windows 64-bit — graphical installer with uninstaller (recommended) |
-| `Aether-Setup-1.3.0-x86.exe` | Windows 32-bit — graphical installer with uninstaller |
-| `Aether-Portable-1.3.0-x64.zip` | Portable, no installation, 64-bit |
-| `Aether-Portable-1.3.0-x86.zip` | Portable, no installation, 32-bit |
+| `Aether-Setup-1.4.0-x64.exe` | Windows 64-bit — graphical installer with uninstaller (recommended) |
+| `Aether-Setup-1.4.0-x86.exe` | Windows 32-bit — graphical installer with uninstaller |
+| `Aether-Portable-1.4.0-x64.zip` | Portable, no installation, 64-bit |
+| `Aether-Portable-1.4.0-x86.zip` | Portable, no installation, 32-bit |
 | `SHA256SUMS.txt` | Checksums for verifying file integrity |
 
 **Requirements:** Windows 10 build 1809 (October 2018 Update) or newer.
@@ -621,7 +633,7 @@ See [SETUP.md](SETUP.md) for the step-by-step repository setup guide.
 
 ### Updating a repository that is still on 1.2.5
 
-Extract the ZIP, open the `Aether_Windows_V1.3.0` folder, select everything in it and copy it into the repository folder; when Explorer asks, choose **Replace the files in the destination**. Then **Commit** and **Push** in GitHub Desktop. Files of 1.2.5 that 1.3.0 no longer has (old scripts, old web bundles, `native/aether/quiche/fuzz` corpus folders, …) may stay in the repository: every CI job removes them first (`scripts/clean-legacy-1.2.5.py`), before any check or build. The five `quiche/fuzz/mayhem/*/testsuite` links of core 2.3.0 are left out of the ZIP on purpose: in 1.2.5 they are folders, and Explorer cannot put a file over a folder ("There is already a folder with the same name…"). They are fuzz-test links, unused by the build, and ignored by the core pristine check.
+Extract the ZIP, open the `Aether_Windows_V1.4.0` folder, select everything in it and copy it into the repository folder; when Explorer asks, choose **Replace the files in the destination**. Then **Commit** and **Push** in GitHub Desktop. Files of 1.2.5 that 1.4.0 no longer has (old scripts, old web bundles, `native/aether/quiche/fuzz` corpus folders, …) may stay in the repository: every CI job removes them first (`scripts/clean-legacy-1.2.5.py`), before any check or build. The five `quiche/fuzz/mayhem/*/testsuite` links of core 2.4.0 are left out of the ZIP on purpose: in 1.2.5 they are folders, and Explorer cannot put a file over a folder ("There is already a folder with the same name…"). They are fuzz-test links, unused by the build, and ignored by the core pristine check.
 
 ## Licence
 

@@ -18,3 +18,9 @@ keystore.properties
 .DS_Store
 Thumbs.db
 *.log
+
+# Generated web previews and local validation outputs
+/dist-web/
+/validation/
+/tests/rust-port/target/
+/tests/core-policy/target/

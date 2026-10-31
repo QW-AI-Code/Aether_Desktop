@@ -1,3 +1,5 @@
+> **Historical document (1.2.5).** The current 1.4.0 audit, with the 8-area score table and `cargo audit` / `npm audit` results, is in `release-notes.md`.
+
 # Aether Desktop 1.2.5 Security Audit
 
 **Scope:** Windows desktop shell, Rust control plane, bundled tunnel engine (Aether Core 2.0.0) and its app patches, the chained Psiphon stage, the **new Tor stages and the bundled pluggable transport**, the local proxy bridge, firewall policy, the AI layer (key storage, network path, redaction, model-output boundary), local storage, logs, build pipeline, and bundled runtime. **Date:** 2026-09-15 (1.2.5).

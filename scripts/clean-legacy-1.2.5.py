@@ -9,7 +9,7 @@ over a 1.2.5 working copy). Files that 1.3.0 *deleted* are then still there:
   * root/scripts/src-tauri files that 1.3.0 no longer has (UPGRADE-1.2.1..4,
     the old core-upgrade/check scripts, src-tauri/src/psiphon.rs, …);
   * the hashed bundle of the old UI in dist-web/assets/;
-  * files inside native/aether that are not part of upstream core 2.3.0
+  * files inside native/aether that are not part of upstream core 2.4.0
     (.upstream-baseline/, aether/build.rs, aether/src/apifront.rs,
     quiche/fuzz/, …). check-core-pristine.py fails on every one of them with
     "not part of upstream".
@@ -128,6 +128,10 @@ def core_extras():
             expected.add(line[len("# symlink "):].strip())
         elif line.strip() and not line.startswith("#"):
             expected.add(line.split(None, 1)[1].strip())
+    overlay=ROOT / "CORE_PORT_PATCHES.json"
+    if overlay.is_file():
+        import json
+        expected.update("./"+r["path"] for r in json.loads(overlay.read_text())["records"])
     out = []
     for p in sorted(CORE.rglob("*")):
         if not p.is_file() and not p.is_symlink():

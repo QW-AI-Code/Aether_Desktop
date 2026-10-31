@@ -632,13 +632,17 @@ pub fn test_service_token(
 
 // ---- TeamSignInHandoff.kt ---------------------------------------------------
 
-#[derive(Debug)]
 pub enum Decision {
     NoSignIn,
     OtherProfile,
     AlreadyEnrolled,
     Unusable,
     Use(String),
+}
+
+// Never derive Debug for a credential-carrying decision (mobile Use.toString).
+impl std::fmt::Debug for Decision {
+ fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{f.write_str(match self{Self::NoSignIn=>"NoSignIn",Self::OtherProfile=>"OtherProfile",Self::AlreadyEnrolled=>"AlreadyEnrolled",Self::Unusable=>"Unusable",Self::Use(_)=>"Use([REDACTED])"})}
 }
 
 pub fn decide(
@@ -868,3 +872,5 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]mod handoff_privacy_tests{use super::*;#[test]fn decision_debug_never_reveals_token(){let debug=format!("{:?}",Decision::Use("sensitive-access-token".into()));assert_eq!(debug,"Use([REDACTED])");assert!(!debug.contains("sensitive-access-token"));}}

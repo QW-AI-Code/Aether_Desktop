@@ -25,7 +25,6 @@ use super::*;
 use crate::custom::process::{self as xproc, XrayProcess};
 use crate::custom::{ChainBase, ChainPlacement, CustomSelection};
 use crate::profile::TransportBackend;
-use std::io::{Read, Write};
 
 const CTAG: &str = "custom";
 /// بودجهٔ سنجشِ «این کانفیگ واقعاً بیرون می‌رود؟» پس از باز شدنِ پورت.
@@ -61,6 +60,11 @@ pub(super) struct CustomRun {
     healthy_since: Option<Instant>,
     dead_checks: u32,
     next_monitor: Option<Instant>,
+    trace_id: u64,
+    trace_started: Instant,
+    auto_next: Option<Instant>,
+    auto_slot: Option<crate::custom::realdelay::ProbeTask> ,
+    auto_basis: Option<crate::custom::store::State>,
 }
 
 impl CustomRun {
@@ -95,24 +99,8 @@ fn engine_front(base: ChainBase) -> bool {
 
 /// یک درخواستِ HTTP واقعی از دلِ پورتِ Xray. پذیرفتنِ CONNECT کافی نیست:
 /// Xray پیش از dialِ سرور به SOCKS پاسخِ موفق می‌دهد.
-fn reaches_out(port: u16) -> bool {
-    for (host, dport) in REACH_TARGETS {
-        let Some(mut s) = probe::socks5_stream_on(port, host, dport, Duration::from_secs(12)) else {
-            continue;
-        };
-        let _ = s.set_read_timeout(Some(Duration::from_secs(12)));
-        let req = format!("HEAD / HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
-        if s.write_all(req.as_bytes()).is_err() {
-            continue;
-        }
-        let mut buf = [0u8; 8];
-        if let Ok(n) = s.read(&mut buf) {
-            if n >= 5 && buf.starts_with(b"HTTP/") {
-                return true;
-            }
-        }
-    }
-    false
+fn reaches_out(port:u16)->bool {
+    (0..2).any(|_|crate::custom::realdelay::request_through(port,"","","www.gstatic.com").is_ok())
 }
 
 fn transport_name(p: Option<Protocol>) -> Option<&'static str> {
@@ -125,7 +113,36 @@ fn transport_name(p: Option<Protocol>) -> Option<&'static str> {
     }
 }
 
+/// Same bounded custom-upstream plan as mobile 1.6.0. No saved profile mutation.
+pub(super) fn custom_upstream_plan(profile: &ConnectionProfile) -> Vec<Candidate> {
+    use crate::profile::{ScanMode, EndpointMode, IpVersion};
+    let mut full=profile.clone();full.endpoint_mode=EndpointMode::Auto;
+    full.manual_peer.clear();full.manual_range.clear();full.ip_version=IpVersion::V4;
+    // UDP carriers (WireGuard/Gool/MIM/QUIC) cannot traverse the custom config: always MASQUE over HTTP/2 (TCP).
+    full.protocol=Protocol::Masque;
+    full.masque_http2=true;
+    let budget=full.connect_timeout_ms().max(180_000);
+    let mut plan=Vec::new();
+    if full.scan_mode!=ScanMode::Turbo {
+        let mut fast=full.clone();fast.scan_mode=ScanMode::Turbo;
+        plan.push(Candidate{profile:fast,timeout_ms:75_000,label:"Custom upstream TURBO".into()});
+    }
+    plan.push(Candidate{profile:full,timeout_ms:budget,label:"Custom upstream full budget".into()});plan
+}
+
 impl AetherController {
+    pub(super) fn custom_upstream_engine(&self)->bool {
+        // Windows: `Config → Aether`, `Config → Aether → Psiphon` and `Config → Aether → Tor`
+        // all need the engine's first hop to ride TCP (MASQUE over HTTP/2) because UDP
+        // (WireGuard/QUIC) cannot pass through the Xray SOCKS stage.
+        self.custom.as_ref().map(|r|r.placement()==ChainPlacement::First && matches!(r.base(),Some(ChainBase::Aether|ChainBase::AetherPsiphon|ChainBase::AetherTor))).unwrap_or(false)
+    }
+    pub(super) fn custom_trace(&self,event:&str,reason:&str) {
+        if let Some(r)=self.custom.as_ref() {
+            DiagnosticsLog::i("ChainTrace",&format!("session={} elapsed_ms={} phase={:?} event={} local_socks=127.0.0.1:{} upstream={:?} reason={}",r.trace_id,r.trace_started.elapsed().as_millis(),r.phase,event,r.port,r.dial_via,crate::custom::process::redact(reason)));
+        }
+    }
+
     // ------------------------------------------------------------ profile
 
     /// پروفایلِ کاربر، بی هیچ جایگزینیِ نشستِ سفارشی.
@@ -186,6 +203,10 @@ impl AetherController {
     /// در-حافظه را جایگزین می‌کند. خاموش = هیچ کاری.
     pub(super) fn custom_begin(&mut self) -> Result<()> {
         self.custom_end();
+        if self.profile.custom_auto_select {
+            let snapshot=crate::custom::store::snapshot();
+            if snapshot.enabled {if let Some(id)=crate::custom::selection::cached_choice(&snapshot){crate::custom::store::update(|s|s.select(&id));}}
+        }
         let Some(sel) = crate::custom::store::selection() else {
             return Ok(());
         };
@@ -236,6 +257,9 @@ impl AetherController {
             healthy_since: None,
             dead_checks: 0,
             next_monitor: None,
+            trace_id: crate::custom::now_millis() as u64,
+            trace_started: Instant::now(),
+            auto_next: None,auto_slot:None,auto_basis:None,
         };
         // Xray که مستقیم بیرون می‌رود ممکن است سرورش روی پورتِ STUN یا IPv6
         // باشد؛ قاعدهٔ سیستم‌گسترده آن را هم می‌بست. همان باریک‌سازیِ تور.
@@ -264,6 +288,7 @@ impl AetherController {
             self.profile.upstream = u;
         }
         run.phase = Phase::Idle;
+        self.engine.set_chain_trace(Some(run.trace_id.to_string()));
         self.custom = Some(run);
         DiagnosticsLog::i(
             CTAG,
@@ -274,6 +299,7 @@ impl AetherController {
 
     /// پایانِ نشست: پروفایل برمی‌گردد و Xray متوقف می‌شود.
     pub(super) fn custom_end(&mut self) {
+        self.custom_trace("session_end","restore saved backend/upstream");
         if let Some(mut run) = self.custom.take() {
             if let Some(x) = run.xray.take() {
                 x.stop();
@@ -283,13 +309,16 @@ impl AetherController {
             // `Config → Psiphon` موتور را از دلِ پورتِ Xray فرستاده بود.
             self.engine.set_upstream_socks(None);
         }
+        self.engine.set_chain_trace(None);
         leakguard::set_custom_egress(false);
         self.engine.set_psiphon_only(false);
+        self.engine.set_custom_tcp_upstream(false);
     }
 
     /// بخشی از `cleanup_native`: Xrayِ این پله می‌رود، نشست می‌ماند.
     pub(super) fn custom_stop_xray(&mut self) {
         self.engine.set_psiphon_only(false);
+        self.engine.set_custom_tcp_upstream(false);
         if self.custom.is_some() {
             // `Config → Psiphon` از دلِ پورتِ Xray می‌رفت؛ Xray که رفت، upstream هم.
             self.engine.set_upstream_socks(None);
@@ -303,10 +332,12 @@ impl AetherController {
             run.dead_checks = 0;
             run.healthy_since = None;
             run.next_monitor = None;
+            run.auto_slot=None;run.auto_basis=None;run.auto_next=None;
         }
     }
 
     fn custom_spawn(&mut self, dial_via: Option<u16>) -> Result<(), String> {
+        self.custom_trace("xray_spawn","starting local SOCKS stage");
         let Some(run) = self.custom.as_mut() else {
             return Err("no custom session".into());
         };
@@ -318,7 +349,7 @@ impl AetherController {
         let slow_hop = dial_via.is_some()
             && run.placement() == ChainPlacement::Last
             && !matches!(run.base(), None | Some(ChainBase::Aether));
-        let mux = if slow_hop { crate::custom::xray::SLOW_CHAIN_MUX } else { 0 };
+        let mux = if slow_hop { crate::custom::xray::SLOW_CHAIN_MUX } else { 0 }; // Mux is always off on Windows
         if slow_hop && run.xray.is_none() && run.restarts == 0 {
             let vision = serde_json::from_str::<serde_json::Value>(&run.sel.config.outbound)
                 .ok()
@@ -330,7 +361,7 @@ impl AetherController {
                 if vision {
                     "Behind a slow hop: chain timeouts (handshake 30s, idle 1800s); Mux stays off — XTLS Vision cannot be multiplexed."
                 } else {
-                    "Behind a slow hop: chain timeouts (handshake 30s, idle 1800s) and Mux (concurrency 8) — one server connection carries every flow."
+                    "Behind a slow hop: chain timeouts (handshake 30s, idle 1800s) Mux is off (BPB/Cloudflare endpoints do not support it)."
                 },
             );
         }
@@ -384,6 +415,7 @@ impl AetherController {
     /// FIRST/LAST: موتور (یا تور، یا سایفون) را همان‌طور که این حالت همیشه
     /// اجرا می‌شد بالا می‌آورد.
     fn custom_resume(&mut self) -> Result<()> {
+        self.custom_trace("resume_engine","Xray ready; starting downstream handshake");
         let Some(run) = self.custom.as_ref() else {
             return Ok(());
         };
@@ -473,7 +505,9 @@ impl AetherController {
         engine::set_exit_socks_port(port);
         DiagnosticsLog::i(CTAG, &format!("Pipeline exit is the custom config on 127.0.0.1:{port}."));
         self.deadline = Some(Instant::now() + Duration::from_millis(OUTBOUND_GRACE_MS));
-        self.bring_up_data_path();
+        if !self.bring_up_data_path() {
+            return;
+        }
         self.begin_verification();
     }
 
@@ -548,6 +582,9 @@ impl AetherController {
                         }
                         None => Next::Wait,
                     }
+                } else if ready && !self.profile.custom_verify_connection {
+                    run.phase=Phase::Running;run.healthy_since=Some(Instant::now());
+                    Next::FrontUp{port:run.port,solo:run.base().is_none()}
                 } else if ready {
                     Next::StartReach(run.port)
                 } else if elapsed > xproc::XRAY_START_TIMEOUT {
@@ -580,14 +617,7 @@ impl AetherController {
                 std::thread::Builder::new()
                     .name("aether-custom-reach".into())
                     .spawn(move || {
-                        let started = Instant::now();
-                        let mut ok = false;
-                        while !ok && started.elapsed() < REACH_BUDGET {
-                            ok = reaches_out(port);
-                            if !ok {
-                                std::thread::sleep(Duration::from_secs(2));
-                            }
-                        }
+                        let ok = reaches_out(port);
                         *slot.lock() = Some(ok);
                     })
                     .ok();
@@ -595,7 +625,7 @@ impl AetherController {
             Next::FrontUp { port, solo } => {
                 DiagnosticsLog::i(
                     CTAG,
-                    &format!("The custom config is up on 127.0.0.1:{port} and reaches the internet."),
+                    &format!("The custom config is up on 127.0.0.1:{port}; proceeding with the configured verification policy."),
                 );
                 if solo {
                     self.custom_finish_solo();
@@ -613,7 +643,9 @@ impl AetherController {
                     CTAG,
                     &format!("Pipeline exit is the custom config on 127.0.0.1:{port} — bringing up the data path."),
                 );
-                self.bring_up_data_path();
+                if !self.bring_up_data_path() {
+                    return true;
+                }
                 self.begin_verification();
             }
         }
@@ -629,6 +661,7 @@ impl AetherController {
 
     /// پایشِ Xray در حالتِ وصل. `true` یعنی این تیک مصرف شد.
     pub(super) fn custom_monitor(&mut self) -> bool {
+        if self.custom_auto_monitor(){return true;}
         enum Next {
             Nothing,
             Restart(Option<u16>),
@@ -711,6 +744,44 @@ impl AetherController {
         }
     }
 
+    /// Real-delay selection runs off the tick/UI thread. Dropping a run drops its result slot.
+    fn custom_auto_monitor(&mut self)->bool {
+        if !self.profile.custom_auto_select {return false;}
+        let Some(run)=self.custom.as_mut() else{return false;};
+        if run.phase!=Phase::Running{return false;}
+        // ۱.۴.۰: در حالت‌های زنجیره‌ای (mode != SOLO) انتخابِ خودکار اجرا نمی‌شود.
+        // سوییچِ خودکار زنجیره را از نو می‌ساخت (تور/سایفون/موتور ریست می‌شد) و
+        // نشستِ جاافتاده از بین می‌رفت؛ ناظرِ سلامت (watchdog) همچنان فعال است.
+        if run.sel.mode!=crate::custom::ChainMode::Solo {
+            if run.auto_slot.take().is_some(){run.auto_basis=None;}
+            run.auto_next=None;
+            return false;
+        }
+        let result=run.auto_slot.as_mut().and_then(|task|task.poll());
+        if let Some(rows)=result {
+            run.auto_slot=None;
+            let snapshot=crate::custom::store::snapshot();
+            if run.auto_basis.take().as_ref()!=Some(&snapshot){run.auto_next=None;return false;}
+            crate::custom::selection::record(&rows);
+            if snapshot.active_id.as_deref()!=Some(&run.sel.config.id){return false;}
+            if let Some(id)=crate::custom::selection::cached_choice(&snapshot){
+                if id!=run.sel.config.id {
+                    self.custom_trace("auto_select","fresh group candidate exceeds 50ms/20% hysteresis");
+                    crate::custom::store::update(|s|s.select(&id));
+                    self.cleanup_native(true);self.custom_end();self.connected_at=None;
+                    self.reconnect_at=Some(Instant::now()+Duration::from_secs(1));
+                    self.set_state(ConnectionState::Reconnecting,"Switching to the best healthy config…");return true;
+                }
+            }
+        }
+        let Some(run)=self.custom.as_mut()else{return false;};
+        if run.auto_slot.is_some() || run.auto_next.map(|t|Instant::now()<t).unwrap_or(false){return false;}
+        run.auto_next=Some(Instant::now()+Duration::from_secs(self.profile.custom_health_secs.clamp(30,3600)));
+        let snapshot=crate::custom::store::snapshot();
+        let targets=crate::custom::selection::group_configs(&snapshot).into_iter().map(|c|crate::custom::realdelay::Target{id:c.id,name:c.name,outbound:c.outbound}).collect::<Vec<_>>();
+        run.auto_basis=Some(snapshot);let binary=run.binary.clone();let dir=self.data_dir.clone();run.auto_slot=Some(crate::custom::realdelay::ProbeTask::spawn(binary,dir,targets));false
+    }
+
     // ------------------------------------------------------------ labels
 
     pub(super) fn custom_chain_label(&self) -> Option<String> {
@@ -723,7 +794,8 @@ impl AetherController {
         if !run.base().map(ChainBase::uses_warp).unwrap_or(false) {
             return None;
         }
-        transport_name(self.effective_protocol)
+        // AETHER-APP-PATCH 1.4.0 smart-label: name the transport that actually won.
+        transport_name(self.resolved_effective_protocol())
     }
 
     /// برچسبِ کارتِ اتصال برای نشستِ سفارشی.
@@ -776,4 +848,10 @@ impl AetherController {
             crate::tor_native::BridgeMode::None,
         )
     }
+}
+
+#[cfg(test)] mod port_policy_tests {
+ use super::*;
+ #[test]fn tcp_upstream_plan(){let p=ConnectionProfile::default();let plan=custom_upstream_plan(&p);assert_eq!(plan.len(),2);assert_eq!(plan[0].timeout_ms,75_000);assert_eq!(plan[0].profile.scan_mode,crate::profile::ScanMode::Turbo);assert!(plan[0].profile.masque_http2);assert!(plan[1].timeout_ms>=180_000);assert!(plan[0].profile.manual_range.is_empty());}
+ #[test]fn already_turbo_one_pass(){let mut p=ConnectionProfile::default();p.scan_mode=crate::profile::ScanMode::Turbo;assert_eq!(custom_upstream_plan(&p).len(),1);}
 }

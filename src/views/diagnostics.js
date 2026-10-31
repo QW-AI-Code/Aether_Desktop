@@ -10,7 +10,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { t } from '../i18n.js'
 import { toast } from '../ui/toast.js'
 
-const CHECK_COLOR = { PASS: '#32E0C4', FAIL: '#FF5C7A', RUNNING: '#F5C451', PENDING: '#8A93A6' }
+const CHECK_COLOR = { PASS: '#3EDBB0', FAIL: '#FF5C7A', RUNNING: '#F5C451', PENDING: '#8A93A6' }
 const LEVEL_CLASS = { E: 'log__line--e', W: 'log__line--w', I: 'log__line--i', D: 'log__line--d' }
 
 function esc(s) {

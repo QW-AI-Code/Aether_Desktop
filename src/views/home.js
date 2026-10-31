@@ -20,8 +20,10 @@
 
 import { app, onChange, toggleConnection, accentFor } from '../main.js'
 import { t } from '../i18n.js'
-import { createConnectionCard } from './connectioncard.js'
+import { createConnectionCard, isRedundantCaption } from './connectioncard.js'
+import { createPresetSelector } from '../ui/presets.js'
 import { startAetherMark } from '../ui/aethermark.js'
+import { homeAnimationsEnabled, onHomeAnimationsChange } from '../ui/feedback.js'
 
 const BUSY_STATES = ['STARTING_ENGINE', 'CONNECTING', 'VERIFYING', 'RECONNECTING', 'DISCONNECTING']
 
@@ -54,6 +56,20 @@ function titleFor(state) {
  *
  * درصدِ تور جداگانه می‌آید تا جمله همین‌جا و به زبانِ کاربر ساخته شود؛ یک
  * «Reaching the Tor network… 45%» که از Rust بیاید، هیچ کلیدِ ترجمه‌ای ندارد. */
+/** ۱.۴.۰: پیام‌هایی که از Rust با درصد می‌آیند («Reaching the Tor network… 45%»)
+ * ابتدا با الگوی `{p}%` ترجمه می‌شوند تا جمله به زبان کاربر و با همان عدد ساخته
+ * شود؛ اگر الگویی نبود، `t()` خودش از راه `numbered()` تلاش می‌کند. */
+export function translateDetail(detail) {
+  if (typeof detail !== 'string' || !detail) return ''
+  const m = detail.match(/^(.*?)(\d{1,3})%(.*)$/s)
+  if (m) {
+    const pattern = `${m[1]}{p}%${m[3]}`
+    const hit = t(pattern)
+    if (hit !== pattern) return hit.replace('{p}', m[2])
+  }
+  return t(detail)
+}
+
 function captionFor(snapshot) {
   switch (snapshot.state) {
     case 'DISCONNECTED': return t('Tap to connect securely')
@@ -62,17 +78,24 @@ function captionFor(snapshot) {
     case 'VERIFYING': return t('Verifying connection…')
     default:
       if (typeof snapshot.torPercent === 'number') {
-        return t('Reaching the Tor network… {0}%').replace('{0}', String(snapshot.torPercent))
+        return t('Reaching the Tor network… {p}%').replace('{p}', String(snapshot.torPercent))
       }
-      return snapshot.detail ? t(snapshot.detail) : ''
+      return snapshot.detail ? translateDetail(snapshot.detail) : ''
   }
+}
+
+/** ۱.۴.۰-ui: زیرنویسی که عیناً همان عنوان است («در حال اتصال…» دو بار) حذف می‌شود. */
+export function dedupeCaption(title, caption) {
+  return isRedundantCaption(title, caption) ? '' : caption
 }
 
 export function renderHome() {
   const root = document.createElement('div')
   root.className = 'view view--home'
   root.innerHTML = `
-    <div class="hero">
+    <!-- ۱.۴.۰-mobile: عنوان و شعار در هدر موبایل هستند؛ اینجا فقط برای صفحه‌خوان
+         می‌ماند و با mobile.css پنهان است (عنوان تکراری بالای کارت اتصال). -->
+    <div class="hero" hidden aria-hidden="true">
       <h1 class="hero__title">${t('Aether')}</h1>
       <p class="hero__tagline">${t('Freedom, in one tap')}</p>
     </div>
@@ -97,6 +120,7 @@ export function renderHome() {
     <p class="shield" id="shield" hidden><span class="shield__dot"></span><span id="shield-text"></span></p>
   `
 
+  root.prepend(createPresetSelector())
   const card = createConnectionCard()
   root.appendChild(card.node)
 
@@ -107,7 +131,9 @@ export function renderHome() {
   let stopMark = null
   const spinAnims = []
 
-  const paint = ({ snapshot }) => {
+  const paint = ({ snapshot: current }) => {
+    // بوت قبل از اولین snapshotِ هسته: حالتِ قطع، نه خطا.
+    const snapshot = current ?? { state: 'DISCONNECTED' }
     const accent = accentFor(snapshot.state)
     const busy = BUSY_STATES.includes(snapshot.state)
     const connected = snapshot.state === 'CONNECTED'
@@ -136,7 +162,7 @@ export function renderHome() {
         // گذار بعدی لغو می‌شود.
         iconEl.hidden = true
         markCanvas.hidden = false
-        stopMark = startAetherMark(markCanvas)
+        stopMark = startAetherMark(markCanvas, { animated: homeAnimationsEnabled() })
       } else {
         markCanvas.hidden = true
         iconEl.hidden = false
@@ -145,6 +171,7 @@ export function renderHome() {
         // می‌رانیم. انیمیشن‌های سادهٔ CSS وقتی ویندوز prefers-reduced-motion
         // گزارش می‌کند (افکت‌ها خاموش / ماشین مجازی / RDP) سراسری بی‌اثر
         // می‌شوند و همین بود که کمان و فلش‌ها یخ‌زده به نظر می‌رسیدند.
+        // چرخش دکمهٔ «در حال اتصال» همیشه فعال است؛ فقط Glow پس‌زمینه با تنظیم خاموش می‌شود.
         if (busy) {
           const spin = [
             { transform: 'translateZ(0) rotate(0deg)' },
@@ -166,7 +193,7 @@ export function renderHome() {
     card.paint(snapshot, {
       busy,
       title: titleFor(snapshot.state),
-      caption: captionFor(snapshot),
+      caption: dedupeCaption(titleFor(snapshot.state), captionFor(snapshot)),
     })
 
     // نشان محافظت WebRTC — سه حالت: در حال سنجش / محافظت‌شده / نشتی.
@@ -208,5 +235,12 @@ export function renderHome() {
 
   paint(app)
   onChange(paint, root)
+  // تعویض سوییچ «انیمیشن‌های صفحهٔ اصلی» بی‌درنگ اعمال شود: مود باطل و دوباره رنگ‌آمیزی.
+  // نما کَش و هنگام تعویض تب از DOM جدا می‌شود؛ پس مشترک نمی‌ماند-نمی‌رود: مود باطل
+  // می‌شود و اگر نما دیده می‌شود همین حالا، وگرنه `__onShow` از نو رنگ‌آمیزی می‌کند.
+  onHomeAnimationsChange(() => {
+    root.querySelector('#connect').dataset.mode = ''
+    if (root.isConnected) paint(app)
+  })
   return root
 }

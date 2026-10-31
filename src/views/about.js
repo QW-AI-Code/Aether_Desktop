@@ -51,6 +51,10 @@ const PORT_IMPROVEMENTS = [
   'Core version gate — 1.5.0 and 1.7.0 flags are only sent to an engine that understands them',
   'WebRTC leak guard (1.2.0) — browsers can no longer expose your real IP over direct UDP',
   'Built-in WebRTC leak test (1.2.0) — a real STUN probe proves the tunnel is airtight',
+  'Default profile is locked (no edit or delete); profiles can be exported and imported as files',
+  'Custom configs: clean, left-to-right server names, stable Server IDs, row numbers and optional real-delay sorting',
+  'Country search in the exit-country picker; calmer connect animation',
+  'Support dialog for the Aether core creator, also available from the announcements archive',
 ]
 
 // v17: ترجمهٔ روان فارسی هر دو فهرست بالا — وقتی زبان برنامه فارسی است
@@ -89,6 +93,10 @@ const PORT_IMPROVEMENTS_FA = [
   'گارد نسخهٔ هسته — فلگ‌های <bdi>1.5.0</bdi> و <bdi>1.7.0</bdi> فقط به هسته‌ای فرستاده می‌شوند که آن‌ها را می‌فهمد',
   'گارد نشتی <bdi>WebRTC</bdi> (نسخهٔ <bdi>1.2.0</bdi>) — مرورگرها دیگر نمی‌توانند آی‌پی واقعی شما را با <bdi>UDP</bdi> مستقیم لو بدهند',
   'آزمایش داخلی نشتی <bdi>WebRTC</bdi> (نسخهٔ <bdi>1.2.0</bdi>) — یک درخواست واقعی <bdi>STUN</bdi> که بی‌نشتی‌بودن تونل را اثبات می‌کند',
+  'پروفایل پیش‌فرض قفل است (غیرقابل ویرایش و حذف)؛ پروفایل‌ها با فایل ورود و خروجی می‌شوند',
+  'کانفیگ‌های سفارشی: نام سرور تمیز و چپ‌به‌راست، شناسهٔ ثابت سرور، شمارهٔ ردیف و سورت اختیاری بر پایهٔ تأخیر واقعی',
+  'جستجوی کشور در انتخاب کشور خروجی و انیمیشن آرام‌تر دکمهٔ اتصال',
+  'پنجرهٔ حمایت از سازندهٔ هستهٔ اتر، قابل‌دسترس از بایگانی پیام‌ها',
 ]
 
 // ---- آیکون‌های SVG داخلی (معادل Icons.Rounded و painterResource موبایل) ----

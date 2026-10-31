@@ -1,0 +1,333 @@
+/* Aether Desktop 1.4.0 — screenshot parity fixes.
+   This final stylesheet owns the corrected layouts in both RTL and LTR.
+   Network/profile semantics are unchanged. */
+
+/* Forward chevrons follow reading direction; disclosure/down arrows do not. */
+html[dir="rtl"] .pick__chev { transform: scaleX(-1); }
+html[dir="ltr"] .pick__chev { transform: none; }
+
+/* Exit-country help belongs below the entire selector, not in its title column. */
+.field--pick .pick__summary {
+  margin: 0;
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--on-dark-muted);
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-align: start;
+}
+.pick { gap: 8px; }
+.pick__value { flex-shrink: 0; max-width: 46%; }
+[data-pick="backend"] .pick__value-text { direction: ltr; unicode-bidi: isolate; }
+[data-key="protocol"] .seg__item[data-value="MIM"] .seg__text { direction: ltr; unicode-bidi: isolate; }
+
+/* An explicit horizontal heading fixes the old .field--row > div column rule.
+   Headings always share one baseline with their AI action. */
+.view--advanced .field .field__head {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  text-align: start;
+}
+.view--advanced .field__head .field__label { flex: 1 1 auto; min-width: 0; }
+.view--advanced .field__head .aihint { flex: 0 0 28px; }
+.view--advanced .field--row { padding-block: 12px; gap: 12px; }
+.view--advanced .field--row > .field__head { flex: 1 1 auto; width: auto; }
+.view--advanced .field--row > .select { flex: 0 1 auto; max-width: 48%; }
+.view--advanced .field--row > .switch { flex: 0 0 auto; }
+.view--advanced .field--row > div:not(.field__head) { flex: 1 1 auto; min-width: 0; }
+.view--advanced .field__label,
+.view--advanced .view__subtitle { text-align: start; }
+html[dir="rtl"] .view--advanced :is(.input, .field__hint, .field__label, .view__subtitle) { text-align: right; }
+/* Keep Latin values in logical order, even when their field is right-aligned. */
+.view--advanced .input.ltr { direction: ltr; unicode-bidi: isolate; }
+
+/* AI gate state remains visible through its bubble, not a near-invisible icon. */
+.aihint, .aihint.is-muted {
+  opacity: 1;
+  color: var(--aether-violet);
+  background: color-mix(in srgb, var(--aether-violet) 18%, transparent);
+}
+.aihint:hover { color: #C3BAFF; background: color-mix(in srgb, var(--aether-violet) 28%, transparent); }
+.aihint svg { opacity: 1; }
+
+/* Brand-only drawer header, with identical inset/rhythm for each divider. */
+.drawer__head { flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 14px 16px; }
+
+/* Free-floating tab capsules: only their outer capsule paints a surface. */
+.view--custom .cc-tabs-bar { align-items: stretch; gap: 4px; margin: 0; background: transparent; border: 0; box-shadow: none; }
+.view--custom .cc-tabs {
+  width: 100%; max-width: 100%; min-width: 0;
+  display: flex; flex-wrap: nowrap; gap: 8px;
+  overflow-x: auto; scrollbar-width: thin; padding: 4px 0 10px;
+  background: transparent; border: 0; box-shadow: none;
+}
+.view--custom .cc-tab {
+  display: inline-flex; flex: 0 0 auto; min-width: 0; max-width: 100%;
+  min-height: 44px; padding: 0 6px;
+  border: 1px solid var(--navy-outline); border-radius: 20px;
+  background: transparent; overflow: hidden;
+}
+.view--custom .cc-tab.is-active { border-color: #7FA8FF; background: var(--navy-850); }
+.view--custom .cc-tab .btn {
+  min-height: 44px; border: 0; border-radius: 0;
+  background: transparent; box-shadow: none; margin: 0;
+}
+.view--custom .cc-tab__pick { min-width: 0; max-width: 220px; padding-inline: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.view--custom .cc-tab .cc-tab__pick[aria-selected="true"] { color: #8EB7FF; background: transparent; }
+.view--custom .cc-tab-edit__btn { width: 36px; flex: 0 0 36px; padding: 0; justify-content: center; }
+.view--custom .cc-tabs-actions { display: flex; flex-direction: row; align-items: stretch; justify-content: flex-start; gap: 8px; width: 100%; }
+.view--custom .cc-tabs-actions .btn { flex: 0 1 auto; width: auto; min-width: 0; min-height: 44px; padding: 10px 18px; border: 0; border-radius: 24px; font-size: 14px; font-weight: 600; }
+.view--custom .cc-add { background: #103D32; color: #72DDB8; }
+.view--custom .cc-new-tab { background: #643F51; color: #FFE1EB; }
+.view--custom .cc-tabs-actions .btn:hover { filter: brightness(1.12); }
+
+/* Responsive server table: all functional columns stay inside the viewport.
+   Domains take their own line; latency/type badges never shrink or ellipsize. */
+.view--custom .cc-table-scroll { max-height: 480px; min-width: 0; width: 100%; overflow-x: hidden; overflow-y: auto; border: 1px solid var(--navy-600); border-radius: 22px; background: var(--navy-850); }
+.view--custom .cc-list { min-width: 0; width: 100%; gap: 0; }
+.view--custom .cc-table-head { min-width: 0; grid-template-columns: minmax(0, 1fr) 40px 36px; gap: 8px; padding: 12px; background: var(--navy-850); }
+.view--custom .ccfg { grid-template-columns: 22px minmax(0, 1fr) 40px 36px; gap: 8px; min-width: 0; padding: 14px 12px; background: var(--navy-850); }
+.view--custom .ccfg.is-active { background: var(--navy-row); }
+.view--custom .ccfg__text { min-width: 0; overflow: hidden; }
+.view--custom .ccfg__name { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.6; }
+.view--custom .ccfg__meta { display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; }
+.view--custom .ccfg__meta > * { flex: 0 0 auto; max-width: 100%; overflow: visible; white-space: normal; text-overflow: clip; }
+.view--custom .ccfg__server { display: block; max-width: 100%; font-size: 12px; line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; color: var(--on-dark-muted); }
+.view--custom .ccfg__actions { width: 36px; min-height: 44px; padding: 0; align-items: center; }
+.view--custom .ccfg__port { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* Full-width mobile ping card, beneath the list, not above its tabs. */
+.view--custom .cc-ping-all {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; min-height: 72px; padding: 16px;
+  border: 0; border-radius: 24px;
+  background: var(--navy-850); color: var(--on-dark);
+  font: inherit; text-align: start; cursor: pointer; white-space: normal;
+}
+.cc-ping-all__icon { flex: 0 0 34px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 12px; background: var(--navy-750); color: var(--aether-blue); }
+.cc-ping-all__copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cc-ping-all__title { font-size: 15px; font-weight: 700; line-height: 1.5; }
+.view--custom .cc-ping-all:disabled { cursor: wait; opacity: .75; }
+.view--custom .cc-ping-all:hover { background: var(--navy-row); }
+.view--custom .cc-ping-all:focus-visible { outline: 2px solid var(--aether-blue); outline-offset: 2px; }
+.view--custom .cc-ping-all[hidden] { display: none; }
+
+@media (max-width: 380px) {
+  .view--custom .ccfg { grid-template-columns: 20px minmax(0, 1fr) 36px 32px; padding-inline: 10px; gap: 6px; }
+  .view--custom .cc-table-head { grid-template-columns: minmax(0, 1fr) 36px 32px; padding-inline: 10px; gap: 6px; }
+  .view--custom .ccfg__actions { width: 32px; }
+  .view--custom .cc-tabs-actions .btn { padding-inline: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .aihint { transition: none; } }
+
+.field--verify .verify__row { display: flex; align-items: center; gap: 12px; }
+.field--verify .verify__row > .field__label { flex: 1 1 auto; min-width: 0; color: var(--on-dark); font-size: 15px; font-weight: 600; }
+.field--verify .verify__row > .switch { flex: 0 0 auto; }
+.field--verify > .field__hint { font-size: 13px; line-height: 1.65; margin: 0; }
+
+/* The mobile drawer uses two rounded groups with inset separators per item. */
+.drawer { background: var(--navy-800); }
+.drawer__group { flex: none; gap: 0; border-radius: 22px; background: var(--navy-850); overflow: hidden; }
+.drawer__group .drawer__item { position: relative; min-height: 72px; border-radius: 0; padding-block: 12px; }
+.drawer__group .drawer__item:not(:last-child)::after { content: ''; position: absolute; bottom: 0; inset-inline: 58px 16px; height: 1px; background: var(--navy-600); }
+.drawer__sep { height: 12px; flex-basis: 12px; margin: 4px 14px; background: transparent; }
+
+/* Only the tab strip scrolls; a thin navy scrollbar remains visible. */
+.view--custom .ccfg__actions { border: 0; border-radius: 10px; background: transparent; color: var(--on-dark); cursor: pointer; }
+.view--custom .ccfg__actions:hover { background: var(--navy-750); }
+.view--custom .ccfg__actions:focus-visible { outline: 2px solid var(--aether-blue); outline-offset: -2px; }
+.cc-ping-card { position: relative; }
+.view--custom .cc-ping-card .cc-ping-all { padding-inline-end: 60px; }
+.cc-ping-card > .aihint { position: absolute; inset-inline-end: 20px; top: 50%; transform: translateY(-50%); }
+
+/* Clear keyboard focus without a clipped default outline at group dividers. */
+.drawer__group .drawer__item:focus-visible { outline: 2px solid var(--aether-blue); outline-offset: -3px; border-radius: 18px; }
+.drawer__item[data-tab="assistant"] .drawer__icon,
+#hdr-assistant { color: var(--aether-violet); }
+
+/* Mobile OptionCard: individual filled cards, never floating bare labels.
+   Five protocol choices form two columns plus one full-width final choice. */
+.view--advanced .seg--grid .seg__item {
+  min-height: 48px; border: 1px solid var(--navy-600); border-radius: 16px;
+  background: var(--navy-row); color: var(--on-dark); padding: 12px;
+}
+.view--advanced .seg--grid .seg__item.is-active { background: var(--navy-750); border-color: #7FA8FF; color: #8EB7FF; }
+.view--advanced .seg--grid .seg__item:hover { background: var(--navy-750); }
+.view--advanced .seg--grid .seg__text { font-size: 14px; }
+.view--advanced [data-key="protocol"].seg--grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.view--advanced [data-key="protocol"].seg--odd .seg__item:last-child { grid-column: 1 / -1; }
+
+/* Reference a1: let help span the card instead of a squeezed title column. */
+.cc-chainpick .cc-pick { display:flex; flex-direction:row; min-width:0; }
+.cc-chainpick .pick__text { flex:1 1 auto; min-width:64px; }
+.cc-chainpick .cc-pick__value { flex:0 1 auto; max-width:46%; min-width:0; }
+.cc-chainpick .cc-chain__summary { margin-top:8px; }
+.cc-chainpick .cc-pick__hops { white-space:normal; text-align:end; }
+/* The generic first-child flex rule must not expand the speedometer. */
+.view--custom .field--row.cc-health-card { display:flex; flex-direction:row; gap:8px; justify-content:flex-start; }
+.view--custom .cc-health-card > .cc-health__icon { flex:0 0 32px; width:32px; height:32px; }
+.view--custom .cc-health-card > .field__head { flex:1 1 auto; min-width:0; gap:6px; }
+.view--custom .cc-health-card .field__label { font-size:12px; }
+.view--custom .cc-health-card .aihint { flex:0 0 24px; width:24px; height:24px; }
+.view--custom .cc-health__chip { flex:0 0 auto; min-width:64px; padding-inline:10px; }
+
+/* Constrain the strip itself, not the page; retain a visible navy scrollbar. */
+.cc-tabs-bar { width:100%; min-width:0; }
+.cc-tabs { width:100%; max-width:100%; min-width:0; overflow-x:auto; overflow-y:hidden;
+  padding-block:6px 10px; scrollbar-width:thin; scrollbar-color:#34496a #101827;
+  cursor:grab; user-select:none; touch-action:pan-x; overscroll-behavior-x:contain; }
+.cc-tabs::-webkit-scrollbar { height:6px; }
+.cc-tabs::-webkit-scrollbar-track { background:#101827; border-radius:6px; }
+.cc-tabs::-webkit-scrollbar-thumb { background:#34496a; border-radius:6px; }
+.cc-tabs::-webkit-scrollbar-thumb:hover { background:#526b94; }
+.cc-tabs.is-dragging, .cc-tabs.is-dragging * { cursor:grabbing; }
+.cc-tabs .cc-tab { padding:0 4px; flex:0 0 auto; align-items:center; gap:0; }
+.cc-tab .cc-tab__pick { white-space:nowrap; min-height:40px; padding-inline:10px; }
+.cc-tab .cc-tab-edit__btn, .cc-tab .cc-tab__close { flex:0 0 36px; width:36px; min-height:40px; padding:0; border:0; border-radius:12px; }
+.cc-tab .cc-tab__close { font-size:22px; color:var(--on-dark-muted); background:transparent; }
+.cc-tab .cc-tab__close:hover { color:var(--aether-error); background:rgba(255,92,122,.12); }
+.cc-tabs button:focus-visible, .cc-health__chip:focus-within { outline:2px solid var(--aether-blue); outline-offset:2px; }
+/* Persian hints read RTL; pasted technical content retains its LTR direction. */
+html[dir="rtl"] .cc-paste:placeholder-shown { direction:rtl; text-align:right; font-family:'IRANSans',Tahoma,sans-serif; }
+html[dir="rtl"] [data-key="team"]:placeholder-shown { direction:rtl; text-align:right; }
+
+/* 1.4.0 — Persian UI must not reorder technical text */
+.view--custom .ccfg__server { direction:ltr; unicode-bidi:isolate; text-align:left !important; }
+.view--custom .ccfg__port { direction:ltr; unicode-bidi:isolate; }
+
+.cc-scan__btns { display: flex; gap: 8px; }
+.cc-scan__bar { height: 6px; border-radius: 3px; background: var(--navy-750); overflow: hidden; }
+.cc-scan__fill { display: block; height: 100%; width: 0; background: var(--aether-blue); transition: width .2s; }
+.cc-scan__row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.cc-scan__row.is-applied .field__hint { color: var(--aether-blue); }
+.cc-scan__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-scan { margin-block: 12px; }
+.cc-scan-go, .cc-scan-opts { white-space: nowrap; }
+.cc-scan__live, .cc-scan__results { display: flex; flex-direction: column; gap: 6px; }
+.cc-scan__live[hidden], .cc-scan__results[hidden] { display: none; }
+.cc-scan__status { font-variant-numeric: tabular-nums; }
+.cc-o-profile, .cc-o-ceiling, .cc-o-ranges { width: 100%; margin: 6px 0 12px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--navy-750); background: transparent; color: inherit; font: inherit; }
+.cc-o-manual, .cc-o-custom { inline-size: 18px; block-size: 18px; }
+.cc-o-info { min-height: 1.2em; }
+
+/* ---- نمایش و صدا: انیمیشن‌های تزئینی صفحهٔ اصلی خاموش (feedback.js) -------------
+   پینگ زنده (میله‌ها/متر کارت اتصال) عمداً اینجا نیست؛ همان قاعدهٔ موبایل. */
+.no-home-anim .connect__halo.is-on { animation: none !important; }
+/* The busy spin of the connect button is NOT a background glow: it keeps rotating. */
+
+/* ---- Clean IP scan settings (cleanip.js) و سوییچ‌های هاب (settings.js) ---------- */
+.view--cleanip { display: flex; flex-direction: column; gap: 14px; }
+.view--cleanip .cip-depth .cip-profiles { margin-top: 10px; }
+.view--cleanip .cip-ceiling { width: 100%; margin-top: 8px; text-align: left; }
+.view--cleanip .cip-ranges { width: 100%; min-height: 120px; margin-top: 8px; resize: vertical; font-family: ui-monospace, Consolas, monospace; }
+.view--cleanip .cip-notice { display: block; margin-top: 10px; }
+.view--cleanip .cip-ceiling-hint,
+.view--cleanip .cip-ranges-hint { display: block; margin-top: 6px; }
+.view--cleanip .cip-ceiling-hint.is-error,
+.view--cleanip .cip-ranges-hint.is-error { color: #ff8a80; }
+.view--cleanip .is-invalid { border-color: #ff6b61; }
+.view--cleanip .cip-manual[disabled],
+.view--cleanip .cip-custom[disabled],
+.view--cleanip .cip-ceiling[disabled],
+.view--cleanip .cip-ranges[disabled] { opacity: .5; cursor: not-allowed; }
+.cip-locked { margin: 4px 2px 0; }
+.setrow--switch { cursor: pointer; }
+.setrow--switch .switch { margin-inline-start: 8px; }
+
+/* ---- اسکن IP تمیز: خط پیشرفت/نتیجه زیر هر سرور و دکمهٔ اسکن تب ---------------- */
+.ccfg__scan { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.ccfg__scan[hidden] { display: none; }
+.ccfg__scanbar { display: block; height: 4px; border-radius: 2px; background: rgba(255,255,255,.12); overflow: hidden; }
+.ccfg__scanfill { display: block; height: 100%; background: var(--aether-blue, #2a6bff); transition: width .2s linear; }
+.ccfg__scantext { font-size: 12px; color: var(--on-dark-muted, #9aa8bd); }
+.ccfg__scan[data-outcome="applied"] .ccfg__scantext { color: #4cd964; }
+.ccfg__scan[data-outcome="failed"] .ccfg__scantext { color: #ff8a80; }
+.cc-scan-tab { white-space: nowrap; }
+
+/* Custom-config rows: server/worker line sits under the labels, single line + ellipsis; no horizontal scroll */
+.view--custom .ccfg { max-width: 100%; box-sizing: border-box; }
+.view--custom .ccfg__server { display: block; min-width: 0; width: 100%; }
+.view--custom .cc-list, .view--custom .ccfg-list { overflow-x: hidden; }
+
+/* 1.4.0 — custom config rows (mobile a1): line 1 = name + labels, line 2 = server/worker
+   address on a single ellipsised LTR line; no horizontal scroll or squeezing. */
+.view--custom .cc-table-scroll { overflow-x: hidden; max-width: 100%; }
+.view--custom .cc-list { min-width: 0; max-width: 100%; overflow: hidden; }
+.view--custom .ccfg { max-width: 100%; box-sizing: border-box; overflow: hidden; }
+.view--custom .ccfg__text { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; overflow: hidden; }
+.view--custom .ccfg__server { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; unicode-bidi: isolate; text-align: left; }
+.view--custom .ccfg__note, .view--custom .ccfg__scantext { display: block; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ===== 1.4.0 بازطراحی صفحهٔ کانفیگ‌های سفارشی مطابق موبایل ۱.۶.۰ ===== */
+.view--custom .cc-top { display: flex; flex-direction: column; gap: 10px; padding: 12px; margin-bottom: 12px; background: var(--navy-850, #0f1626); border: 1px solid var(--navy-600, #25324a); border-radius: 22px; }
+.view--custom .cc-top__row { display: flex; gap: 10px; align-items: stretch; }
+.view--custom .cc-top__row > * { flex: 1 1 0; min-width: 0; }
+.view--custom .cc-ping-card { position: static; }
+.view--custom .cc-ping-card .cc-ping-all { width: 100%; min-height: 48px; padding: 0 14px; justify-content: center; gap: 8px; border: 0; border-radius: 24px; background: #12372b; color: #4fe0a0; font-weight: 700; font-size: 14px; cursor: pointer; display: flex; align-items: center; }
+.view--custom .cc-ping-card .cc-ping-all:hover { background: #17463a; }
+.view--custom .cc-ping-all__icon { flex: none; width: 22px; height: 22px; background: transparent; color: inherit; }
+.view--custom .cc-ping-all__icon svg { width: 20px; height: 20px; }
+.view--custom .cc-ping-all__title { font-size: 14px; white-space: nowrap; }
+.view--custom .cc-add { min-height: 48px; border: 0; border-radius: 24px; background: #5b93ff; color: #0b1220; font-weight: 700; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }
+.view--custom .cc-add:hover { filter: brightness(1.1); }
+.view--custom .cc-scan-tab { min-height: 44px; width: 100%; border: 1px solid var(--navy-600, #25324a); border-radius: 22px; background: transparent; color: #7aa7ff; font-weight: 600; font-size: 14px; cursor: pointer; }
+.view--custom .cc-scan-tab:hover:not(:disabled) { background: var(--navy-750, #17223a); }
+.view--custom .cc-scan-tab:disabled { opacity: .5; cursor: default; }
+.view--custom .cc-tabs-bar { flex-direction: row; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.view--custom .cc-new-tab { flex: none; width: 48px; height: 48px; border: 0; border-radius: 16px; background: #5b93ff; color: #0b1220; display: grid; place-items: center; cursor: pointer; }
+.view--custom .cc-new-tab:hover { filter: brightness(1.1); }
+.view--custom .cc-tabs { flex: 1 1 auto; width: auto; gap: 4px; padding: 0; }
+.view--custom .cc-tab { flex-direction: row-reverse; align-items: center; gap: 2px; min-height: 44px; padding: 0 6px; background: transparent; border: 0; border-bottom: 2px solid var(--navy-600, #25324a); border-radius: 0; color: var(--on-dark-muted, #8b97a8); }
+html[dir="ltr"] .view--custom .cc-tab { flex-direction: row; }
+.view--custom .cc-tab.is-active { border-bottom-color: #5b93ff; color: #7aa7ff; background: transparent; }
+.view--custom .cc-tab__pick { display: inline-flex; align-items: center; gap: 8px; background: transparent; border: 0; color: inherit; font-weight: 700; font-size: 15px; border-radius: 0; }
+html[dir="rtl"] .view--custom .cc-tab__pick { flex-direction: row-reverse; }
+.view--custom .cc-tab__count { min-width: 26px; height: 26px; padding: 0 6px; border-radius: 13px; display: inline-grid; place-items: center; background: var(--navy-700, #1b2740); color: var(--on-dark, #e6edf6); font-size: 12px; }
+.view--custom .cc-tab-edit__btn { width: 30px; min-height: 30px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; }
+.view--custom .cc-table-scroll { max-height: none; overflow: visible; border: 0; border-radius: 0; }
+.view--custom .cc-list { min-width: 0; gap: 10px; display: flex; flex-direction: column; background: transparent; border: 0; box-shadow: none; padding: 0; overflow: visible; }
+.view--custom .ccfg { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 14px; min-height: 0; border: 1px solid var(--navy-600, #25324a); border-radius: 24px; background: var(--navy-850, #0f1626); overflow: hidden; }
+.view--custom .ccfg:last-child { border-bottom: 1px solid var(--navy-600, #25324a); }
+.view--custom .ccfg.is-active { border-color: #5b93ff; background: var(--navy-row, #121d33); }
+.view--custom .ccfg__top { display: flex; align-items: center; gap: 10px; }
+.view--custom .ccfg__spacer { flex: 1 1 auto; }
+.view--custom .ccfg__num { width: 32px; height: 32px; min-width: 32px; border-radius: 10px; font-size: 14px; }
+.view--custom .ccfg__chip { min-width: 52px; height: 32px; padding: 0 12px; border-radius: 16px; display: inline-grid; place-items: center; border: 1px solid var(--navy-600, #25324a); background: transparent; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.view--custom .ccfg__scanbtn, .view--custom .ccfg__actions { flex: none; width: 36px; height: 36px; min-height: 36px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 12px; background: transparent; color: var(--on-dark, #e6edf6); cursor: pointer; max-width: none; }
+.view--custom .ccfg__scanbtn:hover, .view--custom .ccfg__actions:hover { background: var(--navy-750, #17223a); }
+.view--custom .ccfg__name { font-size: 15px; font-weight: 700; }
+.view--custom .ccfg__server { font-size: 13px; color: var(--on-dark-muted, #9aa7bd); }
+.view--custom .ccfg__port { display: none; }
+.view--custom .cc-empty { text-align: center; padding: 24px 12px; color: var(--on-dark-muted, #8b97a8); }
+/* زیرنویس ردیف‌های هاب تنظیمات بریده نشود؛ سه خط */
+.sethub__card .setrow__sub { -webkit-line-clamp: 3; }
+
+/* نام تب در کنار شمارنده */
+.cc-tab__name{display:inline-block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;}
+.cc-tab__count{margin-inline-end:6px;opacity:.8;font-variant-numeric:tabular-nums;}
+
+/* پاپ‌آپ نتیجهٔ اسکن آی‌پی تمیز (CleanIpScanResultCard موبایل) */
+.view--custom{position:relative}
+.cc-scan-result{position:sticky;bottom:12px;z-index:30;margin:12px 4px 0;display:flex;align-items:center;gap:10px;padding:12px 8px 12px 16px;border-radius:12px;background:#e6edf6;color:#0e1726;box-shadow:0 10px 28px rgba(0,0,0,.5)}
+.cc-scan-result[hidden]{display:none}
+.cc-scan-result__text{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:600;font-size:13px}
+.cc-scan-result__note{font-size:12px;opacity:.75}
+.cc-scan-result[data-outcome="failed"] .cc-scan-result__note{color:#b3261e;opacity:1}
+.cc-scan-result__close{appearance:none;border:0;background:transparent;color:inherit;width:34px;height:34px;border-radius:17px;display:inline-grid;place-items:center;cursor:pointer}
+.cc-scan-result__close:hover{background:rgba(0,0,0,.1)}
+
+/* نتیجهٔ تست سرعت زیر هر سرور */
+.ccfg__speed{display:block;margin-top:4px;font-size:11px;color:#8eb7ff;unicode-bidi:plaintext}
+.ccfg__speed.is-running{opacity:.8}
+
+/* 1.4.0 fixes: "new tab" button always on the left (both directions); server rows show only `TYPE S# • IP:PORT`. */
+.view--custom .cc-tabs-bar { direction: ltr; }
+.view--custom .cc-new-tab { order: -1; }
+html[dir="rtl"] .view--custom .cc-tabs { direction: rtl; }
+.view--custom .ccfg__server { font-size: 14px; font-weight: 600; direction: ltr; text-align: left; unicode-bidi: isolate; }

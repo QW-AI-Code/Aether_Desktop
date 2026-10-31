@@ -15,6 +15,12 @@
 use std::sync::OnceLock;
 
 pub const HEADER: &str = "NPVT1";
+pub fn is_binary(bytes: &[u8]) -> bool { bytes.starts_with(b"NPVS") }
+pub fn decode_bytes(bytes: &[u8], password: Option<&str>) -> Result<Decoded, super::parser::ImportError> {
+    static T: OnceLock<Tables> = OnceLock::new();
+    let tables=T.get_or_init(||Tables::parse(include_bytes!("gen2-wb.bin")).expect("valid bundled gen2 tables"));
+    super::npvs::decode(bytes, tables, password)
+}
 pub const SUB_HEADER: &str = "NPVTSUB1";
 const BLOCK: usize = 16;
 
@@ -333,7 +339,7 @@ pub(crate) fn b64_decode_strict(text: &str, alphabet: &[u8; 64]) -> Option<Vec<u
 }
 
 /// `NpvtCodec.decodeBase64`: فاصله‌ها حذف، پَدینگ افزوده؛ اول الفبای استاندارد، بعد URL-safe.
-fn decode_base64(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_base64(s: &str) -> Option<Vec<u8>> {
     let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
     let padded = format!("{clean}{}", "=".repeat((4 - clean.len() % 4) % 4));
     b64_decode_strict(&padded, STD_ALPHABET).or_else(|| b64_decode_strict(&padded, URL_ALPHABET))

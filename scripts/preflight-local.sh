@@ -90,7 +90,7 @@ else
   echo "  ✗ باقی‌ماندهٔ ۱.۲.۵ (python3 scripts/clean-legacy-1.2.5.py --apply)"; echo "$out" | head -8; fail=1
 fi
 
-echo "── ۹) هستهٔ native/aether دست‌نخوردهٔ آپ‌استریم است (Aether 2.3.0)"
+echo "── ۹) هستهٔ 2.4.0 با baseline و پچ‌های ثبت‌شده تطبیق دارد"
 if out=$(python3 scripts/check-core-pristine.py 2>&1); then
   echo "  ✓ $(echo "$out" | tail -1)"
 else
@@ -174,24 +174,36 @@ else
   echo "  ✗ کنترل‌های نحو"; echo "$out" | tail -8; fail=1
 fi
 
-# ۲۳) و اگر cargo هست، حقیقت از خودِ کامپایلر پرسیده می‌شود.
-#
-# نگهبانِ بالا فقط می‌گوید فایل پاره نیست؛ اینکه تایپ‌ها درستند را فقط
-# cargo می‌داند. در محیطی که cargo ندارد رد می‌شود — ولی ردشدن به‌روشنی
-# گزارش می‌شود، نه به سکوت.
-echo "── ۲۳) cargo check هدفِ ویندوز"
+# ۲۳) Windows type checking uses the same resource-only override as CI.
+# This does not manufacture engine executables and does not certify linking/installers.
+echo "── ۲۳) cargo check برای هر دو معماری MSVC"
 if command -v cargo >/dev/null 2>&1; then
-  if [ -f dist-engine/aether.exe ]; then
-    if out=$(cd src-tauri && cargo check --target x86_64-pc-windows-gnu --all-targets 2>&1); then
-      echo "  ✓ $(echo "$out" | grep -m1 Finished | sed 's/^ *//')"
+  for target in x86_64-pc-windows-msvc i686-pc-windows-msvc; do
+    if rustup target list --installed 2>/dev/null | grep -qx "$target"; then
+      if out=$(TAURI_CONFIG='{"bundle":{"resources":[]}}' cargo check --manifest-path src-tauri/Cargo.toml --target "$target" --tests -j2 2>&1); then
+        echo "  ✓ $target: $(echo "$out" | grep -m1 Finished | sed 's/^ *//')"
+      else
+        echo "  ✗ $target"; echo "$out" | tail -15; fail=1
+      fi
     else
-      echo "  ✗ cargo check"; echo "$out" | grep -E '^error' | head -8; fail=1
+      echo "  ⚠ SKIP: Rust target $target نصب نیست"
     fi
-  else
-    echo "  ~ رد شد: dist-engine/ نیست — build.rs منابع می‌خواهد (موتور را بساز یا فایلِ بدلی بگذار)"
-  fi
+  done
 else
-  echo "  ~ رد شد: cargo در این محیط نیست — نحو سنجیده شد، تایپ‌ها نه"
+  echo "  ⚠ SKIP: cargo نصب نیست"
+fi
+
+echo "── ۲۴) تست‌های واقعی ماژول‌های قابل‌حمل Rust"
+if command -v cargo >/dev/null 2>&1; then
+  for manifest in tests/rust-port/Cargo.toml tests/core-policy/Cargo.toml; do
+    if out=$(cargo test --manifest-path "$manifest" -j2 2>&1); then
+      echo "  ✓ $manifest"; echo "$out" | grep 'test result:'
+    else
+      echo "  ✗ $manifest"; echo "$out" | tail -15; fail=1
+    fi
+  done
+else
+  echo "  ⚠ SKIP: Rust host tests؛ cargo نصب نیست"
 fi
 
 echo

@@ -1,0 +1,13 @@
+[package]
+name="aether-core-policy-tests"
+version="1.4.0"
+edition="2021"
+publish=false
+[dependencies]
+smoltcp={version="0.12",default-features=false,features=["std","medium-ip","proto-ipv4","proto-ipv6","socket-tcp","socket-udp","socket-tcp-cubic"]}
+tokio={version="1.52",features=["rt-multi-thread","macros","net","time","sync","io-util"]}
+socket2={version="0.6.4",features=["all"]}
+regex="1"
+ipnet="2"
+log="0.4"
+libc="0.2"

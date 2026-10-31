@@ -103,8 +103,11 @@ PY
 expect_red "برگشتِ SMART برای Tor → Psiphon"
 
 # ۱۰) `T1` دوباره کشور حساب می‌شود — پرچمِ کره‌ای
-sed -i 's/^const PSEUDO: \[&str; 5\]/const PSEUDO: [\&str; 4]/' "$P"
-sed -i 's/\["T1", "A1", "A2", "O1", "XX"\]/["A1", "A2", "O1", "XX"]/' "$P"
+python3 - "$P" <<'PYTEST'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1]);s=p.read_text();assert 'ISO.split_ascii_whitespace().any(|c|c==cc)' in s
+p.write_text(s.replace('ISO.split_ascii_whitespace().any(|c|c==cc)','true'))
+PYTEST
 expect_red "افتادنِ T1 از فهرستِ شبه‌کشورها"
 
 # ۱۱) پالایشِ از-داخلِ-تونل شبه‌کشور را به‌عنوان نتیجه می‌پذیرد

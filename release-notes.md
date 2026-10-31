@@ -1,187 +1,135 @@
-# Aether Desktop 1.3.0 — Release notes
+# Aether Desktop 1.4.0 — release notes
 
-## What's new in 1.3.0
+Aether Core 2.4.0 remains the engine version. This release ports the portable networking and custom-config features of mobile **1.6.0** to Tauri 2 / Windows. Android Intents, camera import, airplane-mode/radio controls, VpnService and phone hotspot UI are not copied.
 
-The app version stays **1.3.0**. This release brings three features over from Aether for Android **1.5.0** — **Custom configs**, **Zero Trust sign-in** and the **redesigned LAN share** — with the same behaviour and wording as on the phone, and bundles the **unmodified Aether Core 2.3.0**. Android's *phone hotspot* share mode is intentionally **not** part of the Windows edition. Saved profiles and the chosen backend are kept.
+## Headline change: Windows UI and dimensions now match mobile 1.6.0
 
-### Custom configs (new, off by default)
+The Windows 1.4.0 interface was rebuilt to follow the mobile 1.6.0 design instead of the older 1.3.0 desktop layout. Only the frontend changed in this pass; Rust, `native/` and `third_party/` are byte-identical to the input (SHA-256 compared for 2292 files).
 
-Ported from Aether for Android **1.5.0**. Settings → **Custom configs**. While the switch is off (the default) nothing changes: the six existing modes, profiles and the engine behave exactly as before.
+- **Settings and cards.** The connection-verification switch is a separate card above the core settings (same `verifyConnection` key, same wording as mobile); protocol tiles are two columns with a full-width last tile; option cards share mobile's structure.
+- **Custom configs page.** Capsule tabs without extra background or line, equal-height *Add config* (green) and *New tab* (dark pink) buttons, no duplicate “Saved configs” title, no fixed 560 px table width (long names, ports and the three-dot button stay inside the window; domains wrap under the type/ping badges), and a full-width *Test all* card under the table with icon, hint and assistant button.
+- **RTL and language.** Picker arrows point left in RTL; the “Exit country” hint sits under the whole row; technical names (Aether, Tor, MASQUE×2) stay English; *Link or text*, *Import file* and *Name* are translated; technical strings in inputs keep LTR order.
+- **Drawer and Gemini.** Triangular logo removed from the drawer header, uniform group spacing; Gemini icons use the `#9B8CFF` token and sit in the title row.
+- **Modal fix.** Escape now closes only the modal and no longer also leaves the sub-page.
 
-- **What you can import.** Share links `vless://`, `vmess://`, `trojan://`, `ss://`, `socks://` / `socks5://`, `wireguard://` / `wg://`; a full **Xray JSON** config (any outbound Xray supports, e.g. Hysteria2, XHTTP, Reality); Base64 or plain **subscription** text; a **subscription URL** (`https://` only, at most 5 redirects, 2 MB, 20 s; when connected it is fetched through the tunnel); and **NapsternetV / Npv Tunnel `.npvt` files**.
-- **How you import.** Paste into the box and press **Import**, pick a file, or drag a file onto the drop zone. **There is no QR scanning on Windows** (no camera path in the desktop app); paste the link instead.
-- **`.npvt` locks are respected.** The file is decoded byte-for-byte like Android. A config locked to another device, an expired one, or one marked *mobile only* is rejected with a clear reason; a password-protected file asks for its password. A locked config's raw link is never shown, copied or edited.
-- **Saved list.** Select, rename, edit (unlocked only), copy link, delete, and a separate **Delete all configs**. The list is sealed with Windows DPAPI (`custom_configs.bin` in the data folder); the web UI never sees the raw outbound.
-- **15 chain modes.** The config can run alone, in front of, or behind the existing engines:
+Limits: checked with Chromium (layout and a new DOM/geometry parity test) and a test IPC, not in WebView2 on Windows; pixel-exact parity is not claimed. See `docs/UI_PARITY_1.4.0.fa.md` and `docs/UIUX_1.4.0_REPORT.fa.md`.
 
-| Mode | Order (first hop → exit) |
-|---|---|
-| Config only | Config |
-| Config → Aether / Aether → Config | xray first / engine first |
-| Config → Psiphon / Psiphon → Config | |
-| Config → Tor / Tor → Config | |
-| Config → Aether → Psiphon / Config → Aether → Tor | config in front of a two-hop chain |
-| Config → Tor → Psiphon / Config → Tor → Aether | |
-| Aether → Psiphon → Config / Aether → Tor → Config | config as the exit of a two-hop chain |
-| Tor → Psiphon → Config / Tor → Aether → Config | |
+- Authenticated NPVS v5 input through native paths and browser byte input: P-256 signature, ChaCha20-Poly1305 fields, PBKDF2/app-key unlock, expiry and locked-content privacy. Legacy NPVT1 stays supported. Recipient-device keys and attestation are explicitly rejected, not bypassed.
+- Persistent automatic/named tabs, counters, per-server action menu, group moves, lowest-delay sorting and 150/300 ms colors. Subscription records refresh atomically in the DPAPI store.
+- Cold TLS + generate_204 real delay, monotonic timing, strict HTTP/1.0/1.1 CRLF parsing and distinct HTTP/network outcomes. A warm live-ping number is a different measurement and is not forced to equal cold setup delay.
+- Config → Aether uses a bounded two-step custom TCP plan. ChainTrace logs lifecycle and teardown without exposing raw locked configs.
+- IPv4 grace race, validated ISO countries, delayed generation-safe country enrichment, globe fallback and wrapping IPv6 display.
+- Optional initial verification (default on), background group auto-selection with 120-second freshness and 50 ms / 20% hysteresis, configurable health interval.
+- Native performance/security ports: CUBIC and bounded netstack queues, WireGuard handoff/rekey safeguards, asymmetric UDP buffers (including Windows socket tuning), routing/DNS fixes, custom TCP gateway scan/SNI policy. (The shipped core `Cargo.lock` pins rustls 0.23.43; see the security audit below.)
+- Version-scoped What's New suppression remains persisted in prefs.json; Windows network-adapter/router troubleshooting replaces phone-only advice.
 
-- **Connection card.** The protocol tile shows the real chain, e.g. `VLESS → Tor` or `Tor → Psiphon → Trojan`, and is shortened to fit (transport names such as MASQUE, WireGuard, Gool, MIM).
-- **Xray core v25.12.8**, bundled as `engine\xray\xray.exe` (x64 and x86 zips and binaries pinned by SHA-256 in `scripts/stage-xray.ps1`). Version 26 rejects `allowInsecure` and the mKCP `seed`, which many existing configs and older `.npvt` files still use, so the app stays on 25.12.8 like Android.
-- **The `Config → Tor` fix.** Client-side sniffing is disabled in every generated config, and the hop that carries `tor.exe` splits Tor's ClientHello into small TLS records so that the *server's* sniffer cannot replace the relay address with Tor's fake SNI either (details below); unit tests lock this for all three positions.
-- **Safety.** xray runs as a hidden child in the app's Job Object (killed with the app), listens on loopback only, gets a config file that is deleted when it stops, and is restarted at most 5 times. DNS stays inside the tunnel; when xray dials through the engine or Tor the server name is passed unresolved. The leak guard only opens the extra egress xray needs while a custom config runs. Split tunnelling stays off by default and the MTU default stays 1280.
+## Reproducible source and validation limits
 
-### Custom configs: chain and ping fixes (1.3.0)
+`CORE_PORT_PATCHES.json` records original/mobile/ported hashes. The upstream manifest has NOT been rewritten to disguise the reviewed overlay as pristine. Guards reject unrecorded changes. CORE_SYNC defaults to off; an explicit upgrade requires rebasing the overlay rather than discarding it.
 
-- **`Config → Psiphon` now goes through the config.** Psiphon was started without an upstream, so it dialled directly and the chain had "no tunnel underneath it". It now gets the config's local SOCKS port (`AETHER_UPSTREAM`); the log shows `psiphon dials out through the upstream proxy`.
-- **Psiphon `WSAEACCES` (10013).** `Psiphon → Config` purges stale Aether firewall rules left by an earlier crash before it starts, and the egress filter lets the Psiphon/xray hop out. If Windows still answers *forbidden by its access permissions*, the app logs once which rule or profile (`BlockOutbound`) blocks it and what to do.
-- **Correct pipeline label.** The log shows the real chain, e.g. `Pipeline: Config → Psiphon (custom config chain)`, instead of the base mode name.
-- **Slow hops.** Xray timeouts for chains are handshake 30 s, idle 1800 s, uplink 10 s, downlink 30 s. When the config is the exit behind Tor/Psiphon, Mux (8 streams) is enabled; it is never used for XTLS Vision (`flow`), WireGuard or Hysteria.
-- **Real ping.** Each saved config has a **Ping** button and the list has **Test all**. The test runs the config in a temporary loopback-only xray (password-protected SOCKS, up to 32 configs per run) and fetches `generate_204`. Results: a delay in ms, or `-1` with *No response*, *Server off*, *Filtered*, *Invalid config* or *No network*.
-- **Diagnostics ping.** DoH / TLS checks always verify the certificate **and** the host name (no `danger_accept_invalid_hostnames`).
-- **Privacy in logs.** Server addresses, host names, IPv6 and UUIDs from xray output are masked (`1.2.x.x`, `<host>`, `<uuid>`). Subscriptions are fetched through the tunnel when connected.
-- **Clean paste.** Invisible characters (RLM/LRM, BOM, bidi marks, NBSP) that Telegram adds to copied links are removed on paste, import and subscription download.
-- **Leftovers from 1.2.5.** `scripts/clean-legacy-1.2.5.py` removes files from 1.2.5 that no longer belong (old scripts, stale web bundles, files in `native/aether` not in `UPSTREAM-SHA256SUMS`); CI runs it before the core pristine check.
+See `docs/PORT_1.4.0_REPORT.fa.md` for actual test results and remaining limitations. Source delivery does not certify live VPN connectivity, signing, an installer or a remote GitHub Actions run. Third-party NPVS adaptation is AGPL-3.0 licensed; see THIRD_PARTY_NOTICES.md before distribution.
 
-### Custom configs: chain, label and speed fixes (this build)
+The existing explicit `Tor → Psiphon` connection label and official Tor process are retained; they are not replaced by a generic SMART label.
 
-Measured against Aether for Android **1.5.0**, which uses the same method; healthy chains (`Config`, `Config → Aether`, `Aether → Config`, `Tor → Config`, `Config → Psiphon` and the regular six modes) are unchanged.
+## Completion pass: portable mobile 1.6.0 gaps
 
-- **`Config → Tor`, `Config → Tor → Aether`, `Config → Tor → Psiphon` — root cause fixed.** `tor.exe` sends a made-up SNI (`www.<random>.com`) in every relay handshake. Most config servers (3x-ui / Marzban default: `sniffing` with `destOverride: tls`) read that name, replace the relay's IP with a domain that does not exist and drop the link — `unexpected eof while reading`, `TLS_ERROR`, Tor stuck at 10 % or never finishing. Android avoids it with a patched Arti that sends no SNI (`AETHER_TOR_LINK_SNI=off`). Windows now does the equivalent inside Xray: the hop that carries `tor.exe` (`tor-link`) splits Tor's ClientHello into 100–200 byte TLS records before it enters the config, so the server's sniffer cannot read a name and keeps the real relay address. Tested here with Tor 0.4.9 through the two attached `.npvt` sample configs: **Bootstrapped 100 % in 9–12 s** and `IsTor: true`, where the same configs stalled at 10 % before.
-- **No bridge stall behind a config.** These chains logged *trying bridges* and waited the 420 s bridge window although bridges are never used when Tor already leaves through the config. They now use the normal window, like Android.
-- **Faster Tor start.** A chained `tor.exe` no longer parses the GeoIP files (about 7 s on the reported PC before *Bootstrapped 0 %*); no country option is used in those torrc files.
-- **`Psiphon → Config`.** The app probed Psiphon's SOCKS port with a connect/close every 200 ms, and Psiphon logged `socksPeekByte() failed: EOF` five times a second. The port is now latched once it is seen open. Psiphon's own direct-dial failures (`no route`, `i/o timeout`) come from the network, not the app.
-- **Protocol names instead of "Config".** After import, the chain list, the Settings row and the connection card name the real protocol — `VLESS → Tor`, `Npvt → Aether`, `Tor → Aether(MASQUE) → Npvt` — in English in both languages. `.npvt` configs show **Npvt**, other links their protocol (VLESS, VMess, Trojan, SS, SOCKS, WireGuard, Hysteria).
-- **Custom configs page redesigned like Android.** The native drop-down is replaced by a chain row that opens a sheet of rounded cards: the chain in large type, *Single · the config alone* / *Double chain* / *Triple chain* under it, the selected card with a blue frame and a check mark (keyboard: arrows, Enter, Esc). Saved configs are separate rounded cards; the selected one has a blue frame and a check.
-- **Instant disconnect.** Removing the firewall rules and restoring the policies now run in parallel instead of one `netsh` call after another, also when stale rules are purged before a connection.
-- **Less CPU, RAM and disk.** A line repeated in a row (e.g. a child process looping on one error) is written twice and then counted — `(previous line repeated N more times)` — and the log flusher writes each batch in one call.
+- SmartPlus is a real two-family WARP/MASQUE race, with independent loopback probe ports/process ownership, serial tactics within each lane, a 7-second stagger, bounded budgets, confirmed winner and joined/cancelled losing workers. Saved profiles are never rewritten to the winning tactic.
+- Tactics Memory is per default physical network (hashed gateway/DNS/NetworkGuid), not installation-global: 14-day proven evidence, 6-hour failed evidence, at most 32 networks, bounded/atomic storage and reset support. Unknown networks do not create a global cache entry.
+- Auto-selection performs a fresh active-group Real Delay batch before connecting when enabled. Periodic results are rejected if their catalog basis changed; cancellation closes sockets, stops Xray and joins workers.
+- Local QR image import, persistent HTTPS subscriptions from Paste, and native-path image import are implemented.
+- Psiphon upload SQM ports the mobile delay-gradient autorate, token-bucket/SFQ and sparse-flow priority. It starts open, uses an independent warm verified-TLS RTT session, applies backpressure only to tunneled uploads, and resets/stops with the connection. Direct routes and downloads are not capped.
+- ChainTrace now includes owned Xray/native exit status, session-linked SOCKS handshake stages and aggregate transfer counters without packet payloads or credentials.
+- AI custom-exit eligibility follows the active session's actual final SOCKS port, not the saved backend's intermediate/default port. Disconnected/ineligible routes fail closed. Zero Trust handoff Debug output never reveals an access token.
+- Development tooling refreshed to Vite 7.3.7 / puppeteer-core 25.14.0, with patched transitive dependencies; npm audit reports zero known advisories at validation time. Node >=22.12 is required.
 
-### Security audit — Windows 1.3.0 compared with Android 1.5.0
+## Actual validation and release boundary
 
-Source-level review of this repository with the same ten areas and weights as the Android 1.5.0 audit (`docs/SECURITY_AUDIT_1.5.0.md`), plus the tests run for this build: 399 Rust unit tests on the Windows target (run under Wine), the frontend jsdom suites, `cargo check --target x86_64-pc-windows-gnu --all-targets`, and a real Tor bootstrap through the sample configs. It is not a penetration test; no leak test was run on Windows hardware.
+Portable production-module tests: 171 passed. Core-policy tests: 33 passed. Full native core tests on Linux: 423 passed, 2 explicitly ignored live-network tests. No failures. These suites overlap in coverage and are not 627 distinct product behaviours.
 
-| # | Area | Weight | Windows 1.3.0 | Android 1.5.0 | Note (Windows) |
-|---|---|---:|---:|---:|---|
-| 1 | Secrets & key management | 14 | 94 | 95 | AI key, Zero Trust sign-in, LAN-share password and saved configs sealed with DPAPI; nothing hardcoded. WARP identity files are plaintext. |
-| 2 | Cryptography, TLS & MitM resistance | 13 | 95 | 96 | SPKI pins kept; diagnostics verify certificate **and** host name. A config's own `allowInsecure` is honoured, as on Android. |
-| 3 | Data-leak risk (DNS, IPv6, WebRTC, bypass) | 17 | 89 | 90 | DNS inside the tunnel, WebRTC lock, IPv6 fail-closed, kill switch. The system proxy is not a universal route for arbitrary UDP apps. The new `tor-link` hop stays inside the config — no new egress. |
-| 4 | LAN sharing surface | 10 | 87 | 86 | Zero-leak guard, optional RFC 1929 / Basic auth, no LAN/private targets, no bypass rules for guests. |
-| 5 | Local storage at rest | 12 | 88 | 93 | `profile.json`, rotating log and WARP identity are plaintext; the Xray config file exists only while it runs. |
-| 6 | Permissions & OS configuration | 7 | 92 | 97 | Requires administrator (firewall, WebRTC policy); rules are scoped and removed on disconnect, stale rules purged. |
-| 7 | Logging & diagnostics | 7 | 96 | 97 | Public IPs, hosts and UUIDs masked; locked `.npvt` servers never logged; repeated lines collapsed. |
-| 8 | Code quality & network configuration | 8 | 90 | 88 | Loopback-only listeners; capped restarts; Tor chains fixed at the root, guarded by unit tests. The chain's loopback SOCKS is unauthenticated (Android SB-5, still open on both). |
-| 9 | On-device exposure (screen, clipboard) | 6 | 92 | 95 | A locked config's link cannot be copied or shown; an unlocked link copied by the user stays on the clipboard. |
-| 10 | Supply chain & build integrity | 6 | 82 | 80 | Xray zip and binary pinned by SHA-256, core pristine check; installers not Authenticode-signed without a CI certificate. |
-| | **Total** | **100** | **90.70 ≈ 91** | **91.96 ≈ 92** | |
+Both app `cargo check --tests` and complete native core `cargo check` succeeded for x86_64-pc-windows-msvc and i686-pc-windows-msvc, including BoringSSL/ring/QUIC with a Windows SDK and Clang 19. The app checks use the CI resource-only override, not fake executable resources. npm test (13 harnesses), web build, Chromium layout and project preflight succeeded. See the Persian report and delivery verification log.
 
-The one point between the two comes from Windows-specific design (plaintext non-secret state, administrator rights, system proxy instead of a VpnService route), not from a known open vulnerability. No change in this build widens what leaves the machine: the Tor fix only changes how the ClientHello is cut into records inside the config's own tunnel.
+No source-level gap listed in the previous report is deliberately left as a future implementation item. This is not a proof of universal semantic equality or a Windows runtime certification. Windows linking/installers/signing, remote GitHub Actions and live chain/NPVS interoperability still need a real release test; they were not run in this Linux session. Android-only services, radio controls, camera Intents, Keystore/attestation and phone hotspot UI remain platform exclusions, not bypasses.
 
-### Updating a repository that is still on 1.2.5
+## 1.4.0 — fixes (Windows parity with mobile)
+- Import of NapsternetV `NPVO1` text exports (`.npvs`), including `npvs1:` encoded values (port of `NpvoCodec.kt`).
+- Server rows show only `TYPE S# • IP:PORT` (no names, adverts or worker hosts); S numbers are consecutive per tab.
+- "New tab" button is on the left; the sparkle (AI) buttons were removed from the config page.
+- Real ping now mirrors mobile: `www.gstatic.com`, discarded warm-up, two keep-alive rounds, validated TLS.
+- "Home screen animations" off disables only the background glow; the connect-button spin keeps running.
+- Wintun: DLL check, retries, reuse of a stale adapter, exact OS error; no silent fall-back to the system proxy.
 
-Extract the ZIP, open the `Aether_Windows_V1.3.0` folder, select everything in it and copy it into the repository folder; when Explorer asks, choose **Replace the files in the destination**. Then **Commit** and **Push** in GitHub Desktop. Files of 1.2.5 that 1.3.0 no longer has (old scripts, old web bundles, `native/aether/quiche/fuzz` corpus folders, …) may stay in the repository: every CI job removes them first (`scripts/clean-legacy-1.2.5.py`), before any check or build. The five `quiche/fuzz/mayhem/*/testsuite` links of core 2.3.0 are left out of the ZIP on purpose: in 1.2.5 they are folders, and Explorer cannot put a file over a folder ("There is already a folder with the same name…"). They are fuzz-test links, unused by the build, and ignored by the core pristine check.
+## Security audit — Windows 1.4.0 (score 70/100)
 
-### Zero Trust: sign in before you connect
+Source-level review of this repository, scored on eight areas with fixed weights, plus tools actually run for this release: `cargo audit` (RustSec database of 30 Oct 2026) on both `Cargo.lock` files, `npm audit` (0 advisories), `grep` review of TLS, capabilities, CSP, CI and key material. It is **not** a penetration test; no leak test, installer, signing or live tunnel was run on Windows hardware. The scores are the reviewer's judgement against the evidence in the table, not an automated metric.
 
-- **Sign in first.** Settings → Zero Trust → *Email code* → **Sign in** opens a dialog: the code is sent to the e-mail address, you type it (three tries), **Send a new code** becomes available after 30 seconds, and every problem (wrong team, wrong address, expired or wrong code, no network) is explained in plain words.
-- **Sealed and visible.** The sign-in is sealed with Windows DPAPI, bound to the team **and** the e-mail address, and the panel shows whether it is still valid and until when. **Forget this sign-in** removes it. The token never reaches the web UI.
-- **Code during connection.** If the engine asks for an e-mail code while connecting, a dialog opens over any page. **Not now** stops that connection attempt instead of leaving it waiting.
-- **Membership.** An enrolled device shows its membership with **Remove this device’s membership** (with confirmation, only while disconnected); the next connection enrols again.
-- **Service token and enrolment token.** *Service token* → **Test the service token** runs the same exchange the engine uses, without saving anything. A pasted *Access token* (enrolment token) is checked on the spot (empty, malformed, expired, or valid with time left).
+| # | Area | Weight | Score | Evidence / remaining risk |
+|---|---|---:|---:|---|
+| 1 | Data leaks (DNS, IPv6, WebRTC, bypass) | 15 | 13 | DNS inside the tunnel, WebRTC lock, IPv6 fail-closed, kill switch. The system proxy is not a universal route for arbitrary UDP apps. No leak test on real Windows hardware. |
+| 2 | Permissions and app components | 15 | 12 | Tauri capabilities are minimal (window + shell:allow-open) and the CSP has no remote origin. Needs administrator rights; CSP allows 'unsafe-inline' for styles. |
+| 3 | TLS and cryptography | 15 | 10 | SPKI pins and certificate + host-name checks in diagnostics are kept. But the Clean-IP scanner (cleanip.rs:517-518) accepts invalid certificates and host names, and the core accepts invalid certificates in bridges.rs and zerotrust.rs. |
+| 4 | Dependencies (cargo audit / npm audit) | 15 | 7 | npm audit: zero. cargo audit on src-tauri/Cargo.lock: 1 vulnerability (crypto-bigint) and 11 warnings; on the core Cargo.lock: 16 advisories, including quinn-proto 0.11.17 (DoS, CVSS 7.5) and rustls 0.23.43. The lock does not match the earlier “rustls 0.23.46” claim. |
+| 5 | Secrets and key management | 15 | 12 | AI key, Zero Trust sign-in, LAN-share password and saved configs are sealed with DPAPI; no hardcoded secret and no pfx/p12/jks file found. WARP identity files are plaintext. |
+| 6 | Local data and logging | 10 | 8 | IPs, hosts and UUIDs are masked in logs and repeated lines are collapsed; profile.json and the rotating log are not encrypted. |
+| 7 | Supply chain and CI | 10 | 5 | Xray is pinned by SHA-256 and the core/overlay guard is active. But GitHub Actions are referenced by tag (not commit), dtolnay/rust-toolchain@stable floats and installers are not Authenticode-signed. |
+| 8 | Local services and LAN sharing | 5 | 3 | Listeners are loopback-only and LAN share has the zero-leak guard; but share authentication is off by default and the chain's local SOCKS is unauthenticated. |
+| | **Total** | **100** | **70** | |
 
-### Share VPN on the local network
+**Findings to fix next (not changed in this release, because the core overlay is hash-guarded and unverified edits would break `check-core-pristine`):**
 
-- **Redesigned Share page.** Live status (*off*, *waiting for a network*, *ready*, *port busy*), one **Share on this network** switch, a zero-leak badge, copyable SOCKS5 `10810` / HTTP `10811` / address rows, the computer's other addresses, **Copy all details**, setup steps and the check address.
-- **Every real adapter.** The share listens on every Wi‑Fi and Ethernet address of the computer (virtual adapters and Wi‑Fi Direct / hosted-network adapters are skipped) and follows network changes while connected.
-- **Optional username and password.** Off by default, as on Android. When on, SOCKS5 (RFC 1929) and the HTTP proxy (Basic) require it. A strong password is generated; you can set your own username and password (at least 8 characters) or **Generate a new password**. Both are sealed with DPAPI and never shown on the share pages.
-- **`http://aether.check/` from every path.** Through the HTTP proxy, SOCKS5 or the PAC file, a shared device can open this address to see whether it is protected, which path it uses and the tunnel's exit IP.
-- **Setup page.** `http://<computer address>:10811/` gives bilingual (Persian/English) instructions, the PAC file (`/proxy.pac`, `/wpad.dat`), a live WebRTC leak test and one-click WebRTC locks for Windows, Firefox, macOS and Linux. The pages load nothing from the internet.
-- **Zero-leak guard.** Shared devices cannot reach private or local addresses of the host's network, never receive *Direct* (bypass) rules, identifying proxy headers are removed, and UDP through SOCKS5 is offered only when the engine can carry it.
-
-### Core, routing and settings (carried over in 1.3.0)
-
-- **Aether Core 2.3.0, unmodified.** All Tor modes use the bundled `tor.exe`; the protocol tile shows `Tor → Psiphon` instead of `SMART`. The Psiphon child is built from the compatible CluvexStudio commit `83aa73b9b982e7421e00117f5b0c5aceb5dda452` and receives the bundled server entries through `AETHER_PSIPHON_SERVER_ENTRIES`.
-- **DNS and routing.** *Bypass Iranian sites* and *Block ads and trackers* are independent opt-in switches with bundled lists and a weekly refresh through the tunnel. Iranian hosts outside `.ir` are checked with DNS-over-HTTPS through the tunnel before going direct. In `Aether → Psiphon` and `Tor → Psiphon`, rules are applied at the local bridge.
-- **A working server is no longer thrown away.** The app used to tell the engine to reuse the remembered server only if it answered faster than about **300 ms** — and on the networks reports actually came from, nothing answers that fast, so the remembered server was discarded every time and each reconnect paid for a full scan. That check is now **off by default**, so a remembered server that answers is used, as the engine always did on its own. If you are on a fast connection and want the app to look for the best server, the switch *Only reuse a fast endpoint* is still under **Transport & anti-DPI** — with limits that now match real networks (2000 ms / 5000 ms direct, 1200 ms / 3500 ms chained).
-- **Your own ECH setting.** If you have an `ECHConfigList`, you can paste it under **Transport & anti-DPI** instead of letting the app fetch one — useful where your network blocks exactly that default fetch. Pointing ECH at a different domain, as v2rayNG does, is not possible: the engine does not accept a domain there.
-- **Custom MTU** in the range **1280–9000**.
-- **AI and interface.** The default model prefers **Gemini 3.1 Flash-Lite** when available; token limits are shown only when Google reports them. The connection card groups status, IP, time and traffic; settings use grouped cards and horizontal option tiles.
-- **Saved backend is kept.** `Aether` is only the default for a new profile; restarting never replaces the user's choice.
-
-### Packaging
-
-Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives** plus `SHA256SUMS.txt`; no `.msi`. The version is **1.3.0** in every manifest, and the CI preflight checks this. Real tunnel and network behaviour still needs testing on Windows.
+1. **Core dependency advisories.** `native/aether/aether/Cargo.lock` pins `rustls 0.23.43`, `quinn-proto 0.11.17` (RUSTSEC-2026-0338/0340/0343, remote panic/DoS), `rustls-webpki 0.103.15`, `crypto-bigint 0.5.5`, `ctutils 0.4.2`, `zstd` crates and `rsa 0.9.10` (RUSTSEC-2023-0071, no fix available). The mobile project upgrades several of these in CI with `scripts/patch-engine-dependencies.py`; the Windows CI has no equivalent step. An earlier line of these notes said “rustls 0.23.46”; that is **not** what the shipped lock file contains and has been corrected.
+2. **Clean-IP scanner accepts any certificate.** `src-tauri/src/custom/cleanip.rs:517-518` (`danger_accept_invalid_certs(true)` + `danger_accept_invalid_hostnames(true)`). If the scan only measures reachability and no secret is sent, impact is low; it should still be documented or replaced by a pinned check.
+3. **Supply chain.** Pin GitHub Actions to commit SHAs, pin the Rust toolchain version, add Authenticode signing when a certificate exists (`.github/expected-signer.txt` is empty).
+4. **Plaintext state.** WARP identity, `profile.json` and the log are not encrypted (not secrets by design, but sensitive).
 
 ---
 
 <div dir="rtl" align="right">
-<h2 dir="rtl" align="right">‏تازه‌های نسخهٔ ویندوز ۱.۳.۰</h2>
-<p dir="rtl" align="right">‏نسخهٔ برنامه همچنان <bdi>1.3.0</bdi> است. این انتشار سه قابلیت را از <bdi>Aether</bdi> اندروید <bdi>1.5.0</bdi> به ویندوز می‌آورد — <strong>کانفیگ‌های سفارشی</strong>، <strong>ورود <bdi>Zero Trust</bdi></strong> و <strong>اشتراک بازطراحی‌شده روی شبکهٔ محلی</strong> — با همان رفتار و همان متن‌های گوشی، و هستهٔ <strong>دست‌نخوردهٔ <bdi>Aether Core 2.3.0</bdi></strong> را همراه دارد. حالت «هات‌اسپات گوشی» اندروید عمداً در نسخهٔ ویندوز <strong>نیست</strong>. پروفایل‌های ذخیره‌شده و بک‌اند انتخابی حفظ می‌شوند.</p>
-<h3 dir="rtl" align="right">‏کانفیگ‌های سفارشی (تازه، به‌طور پیش‌فرض خاموش)</h3>
-<p dir="rtl" align="right">‏از <bdi>Aether</bdi> اندروید <bdi>1.5.0</bdi> آمده است: تنظیمات ← <strong>کانفیگ‌های سفارشی</strong>. تا وقتی کلید خاموش است (پیش‌فرض) هیچ چیز عوض نمی‌شود و شش حالت قبلی، پروفایل‌ها و موتور دقیقاً مثل قبل کار می‌کنند.</p>
-<ul dir="rtl" align="right">
-<li>‏<strong>چه چیزی وارد می‌شود:</strong> لینک‌های <bdi>vless://</bdi>، <bdi>vmess://</bdi>، <bdi>trojan://</bdi>، <bdi>ss://</bdi>، <bdi>socks://</bdi>، <bdi>wireguard://</bdi>؛ کانفیگ کامل <bdi>Xray JSON</bdi>؛ متن اشتراک (<bdi>Base64</bdi> یا ساده)؛ نشانی اشتراک (فقط <bdi>https://</bdi>)؛ و فایل‌های <bdi>.npvt</bdi>. اسکن <bdi>QR</bdi> در ویندوز نیست.</li>
-<li>‏<strong>قفل‌های <bdi>.npvt</bdi> رعایت می‌شوند:</strong> کانفیگِ قفل‌شده به دستگاه دیگر، منقضی یا «فقط موبایل» با دلیل روشن رد می‌شود و لینک خامِ کانفیگ قفل‌شده هرگز نمایش، کپی یا ویرایش نمی‌شود.</li>
-<li>‏<strong>فهرست ذخیره‌شده:</strong> انتخاب، تغییر نام، ویرایش (فقط بازها)، کپی لینک، حذف و «حذف همهٔ کانفیگ‌ها»؛ فهرست با <bdi>Windows DPAPI</bdi> رمز می‌شود.</li>
-<li>‏<strong>۱۵ حالت زنجیره:</strong> کانفیگ تنها، جلوی موتورها یا پشت آن‌ها — از <bdi>Npvt</bdi> تنها تا <bdi>Tor → Aether → Npvt</bdi>.</li>
-<li>‏<strong>هستهٔ <bdi>Xray v25.12.8</bdi></strong> با <bdi>SHA-256</bdi> پین شده است، مثل اندروید.</li>
+
+<h2 dir="rtl" align="right">تغییر شاخص: رابط و ابعاد ویندوز ۱.۴.۰ با موبایل ۱.۶.۰ همسان شد</h2>
+
+<p dir="rtl" align="right">رابط ویندوز ۱.۴.۰ به‌جای چیدمان قدیمی دسکتاپ ۱.۳.۰، بر پایهٔ طراحی موبایل ۱.۶.۰ بازسازی شد. در این مرحله فقط فرانت‌اند تغییر کرد؛ Rust و <bdi>native</bdi> و <bdi>third_party</bdi> با ورودی بایت‌به‌بایت یکسان‌اند (مقایسهٔ <bdi>SHA-256</bdi> برای ۲۲۹۲ فایل).</p>
+
+<ul dir="rtl">
+<li><strong>تنظیمات و کارت‌ها:</strong> سوئیچ راستی‌آزمایی اتصال کارت مستقل بالای تنظیمات هسته است (همان کلید <bdi>verifyConnection</bdi> و متن موبایل)؛ کاشی‌های پروتکل دو ستونه‌اند و گزینهٔ آخر تمام‌عرض است.</li>
+<li><strong>صفحهٔ کانفیگ‌های سفارشی:</strong> تب‌های کپسولی، دکمه‌های هم‌ارتفاع «افزودن کانفیگ» (سبز) و «تب جدید» (صورتی تیره)، حذف عنوان تکراری، حذف عرض ثابت ۵۶۰ پیکسلی جدول (نام و پورت و دکمهٔ سه‌نقطه داخل پنجره می‌مانند) و کارت تمام‌عرض «تست پینگ همه» زیر جدول.</li>
+<li><strong>راست‌به‌چپ و زبان:</strong> فلش انتخابگرها در RTL رو به چپ است؛ نام‌های فنی (<bdi>Aether</bdi>، <bdi>Tor</bdi>، <bdi>MASQUE×2</bdi>) انگلیسی می‌مانند؛ «لینک یا متن»، «وارد کردن فایل» و «نام» ترجمه شدند؛ رشته‌های فنی در ورودی‌ها ترتیب LTR دارند.</li>
+<li><strong>کشو و Gemini:</strong> لوگوی مثلثی از هدر کشو حذف شد و فاصلهٔ گروه‌ها یکسان است؛ آیکون‌های <bdi>Gemini</bdi> از توکن <bdi>#9B8CFF</bdi> استفاده می‌کنند.</li>
+<li><strong>رفع باگ مدال:</strong> کلید <bdi>Escape</bdi> فقط مدال را می‌بندد و همزمان از زیرصفحه خارج نمی‌شود.</li>
 </ul>
-<h3 dir="rtl" align="right">‏کانفیگ‌های سفارشی: رفع زنجیره‌ها، برچسب‌ها و سرعت (همین بیلد)</h3>
-<p dir="rtl" align="right">‏مرجع، <bdi>Aether</bdi> اندروید <bdi>1.5.0</bdi> با همان روش است. زنجیره‌های سالم (<bdi>Config</bdi>، <bdi>Config → Aether</bdi>، <bdi>Aether → Config</bdi>، <bdi>Tor → Config</bdi>، <bdi>Config → Psiphon</bdi> و شش حالت معمولی) دست نخورده‌اند.</p>
-<ul dir="rtl" align="right">
-<li>‏<strong>ریشهٔ کندی <bdi>Config → Tor</bdi>، <bdi>Config → Tor → Aether</bdi> و <bdi>Config → Tor → Psiphon</bdi> رفع شد:</strong> <bdi>tor.exe</bdi> در هر دست‌دادن با رله یک <bdi>SNI</bdi> ساختگی (<bdi>www.&lt;random&gt;.com</bdi>) می‌فرستد. بیشتر سرورهای کانفیگ (پیش‌فرض <bdi>3x-ui</bdi> و <bdi>Marzban</bdi>: <bdi>sniffing</bdi> با <bdi>destOverride: tls</bdi>) آن نام را می‌خوانند، آی‌پی رله را با دامنه‌ای که وجود ندارد عوض می‌کنند و اتصال را می‌بندند؛ نتیجه <bdi>TLS_ERROR</bdi> و ماندنِ تور روی ۱۰٪ بود. اندروید با <bdi>Arti</bdi> وصله‌شده اصلاً <bdi>SNI</bdi> نمی‌فرستد. ویندوز حالا معادلش را داخل <bdi>Xray</bdi> انجام می‌دهد: هاپِ حامل تور (<bdi>tor-link</bdi>) <bdi>ClientHello</bdi> را پیش از ورود به کانفیگ به رکوردهای ۱۰۰ تا ۲۰۰ بایتی می‌شکند تا sniffer سرور نامی نخواند و آدرس واقعی رله بماند. با دو کانفیگ نمونهٔ <bdi>.npvt</bdi> آزموده شد: <strong>بوت‌استرپ ۱۰۰٪ در ۹ تا ۱۲ ثانیه</strong> و <bdi>IsTor: true</bdi>، در حالی که قبلاً روی ۱۰٪ می‌ماند.</li>
-<li>‏<strong>بدون انتظار پل پشت کانفیگ:</strong> این زنجیره‌ها «تلاش با پل» می‌نوشتند و ۴۲۰ ثانیه منتظر پل می‌ماندند، در حالی که وقتی تور از دل کانفیگ بیرون می‌رود پلی به کار نمی‌رود. حالا مثل اندروید پنجرهٔ عادی دارند.</li>
-<li>‏<strong>شروع سریع‌تر تور:</strong> تورِ زنجیره‌ای دیگر فایل‌های <bdi>GeoIP</bdi> را پارس نمی‌کند (حدود ۷ ثانیه روی رایانهٔ گزارش‌دهنده پیش از «<bdi>Bootstrapped 0%</bdi>»).</li>
-<li>‏<strong><bdi>Psiphon → Config</bdi>:</strong> برنامه هر ۲۰۰ میلی‌ثانیه پورت سایفون را باز و بسته می‌کرد و سایفون ثانیه‌ای پنج بار <bdi>socksPeekByte() failed: EOF</bdi> می‌نوشت. حالا پورت پس از اولین بار باز دیدن، باز حساب می‌شود. خطاهای اتصال مستقیم خود سایفون (<bdi>i/o timeout</bdi>) از شبکه است، نه از برنامه.</li>
-<li>‏<strong>نام پروتکل به‌جای «کانفیگ»:</strong> پس از وارد کردن، فهرست زنجیره، ردیف تنظیمات و کارت اتصال نام واقعی پروتکل را نشان می‌دهند — <bdi>VLESS → Tor</bdi>، <bdi>Npvt → Aether</bdi>، <bdi>Tor → Aether(MASQUE) → Npvt</bdi> — در هر دو زبان به انگلیسی. فایل‌های <bdi>.npvt</bdi> با <bdi>Npvt</bdi> و بقیه با پروتکل خودشان (<bdi>VLESS</bdi>، <bdi>VMess</bdi>، <bdi>Trojan</bdi>، <bdi>SS</bdi>، <bdi>SOCKS</bdi>، <bdi>WireGuard</bdi>، <bdi>Hysteria</bdi>) نشان داده می‌شوند.</li>
-<li>‏<strong>طراحی تازهٔ صفحهٔ کانفیگ‌های سفارشی مثل اندروید:</strong> منوی کشویی ویندوز جای خود را به ردیف «زنجیره» داد که برگه‌ای از کارت‌های گرد باز می‌کند: زنجیره با قلم درشت، زیرش «تکی · فقط کانفیگ» / «زنجیرهٔ دوتایی» / «زنجیرهٔ سه‌تایی» و کارت انتخاب‌شده با قاب آبی و تیک (صفحه‌کلید: جهت‌ها، <bdi>Enter</bdi>، <bdi>Esc</bdi>). کانفیگ‌های ذخیره‌شده هم کارت‌های گرد جدا هستند و انتخاب‌شده قاب آبی و تیک دارد.</li>
-<li>‏<strong>قطع فوری:</strong> حذف قواعد فایروال و بازگرداندن سیاست‌ها حالا هم‌زمان انجام می‌شود، نه یک فرمان <bdi>netsh</bdi> پس از دیگری؛ پاک‌سازی قواعد جامانده پیش از اتصال هم همین‌طور.</li>
-<li>‏<strong>مصرف کمتر پردازنده، حافظه و دیسک:</strong> خطی که پشت سر هم تکرار شود دو بار نوشته و بعد فقط شمرده می‌شود — <bdi>(previous line repeated N more times)</bdi> — و هر دسته از لاگ با یک فراخوانی روی دیسک می‌رود.</li>
-</ul>
-<h3 dir="rtl" align="right">‏ممیزی امنیتی — ویندوز ۱.۳.۰ در مقایسه با اندروید ۱.۵.۰</h3>
-<p dir="rtl" align="right">‏بازبینی سطح سورس همین مخزن با همان ده حوزه و وزن‌های ممیزی اندروید <bdi>1.5.0</bdi>، به‌همراه آزمون‌های همین بیلد: <bdi>399</bdi> آزمون واحد <bdi>Rust</bdi> روی هدف ویندوز (اجرا با <bdi>Wine</bdi>)، آزمون‌های رابط کاربری، <bdi>cargo check</bdi> برای ویندوز و بوت‌استرپ واقعی تور از دل کانفیگ‌های نمونه. این آزمون نفوذ نیست و آزمون نشتی روی سخت‌افزار ویندوز اجرا نشد.</p>
+
+<p dir="rtl" align="right"><strong>محدودیت:</strong> آزمون با <bdi>Chromium</bdi> و <bdi>IPC</bdi> آزمایشی انجام شده، نه روی <bdi>WebView2</bdi> ویندوز؛ انطباق پیکسلی ۱۰۰٪ ادعا نمی‌شود. جزئیات در <bdi>docs/UI_PARITY_1.4.0.fa.md</bdi>.</p>
+
+</div>
+
+
+<div dir="rtl" align="right">
+
+<h2 dir="rtl" align="right">ممیزی امنیتی — ویندوز ۱.۴.۰ (امتیاز ۷۰ از ۱۰۰)</h2>
+
+<p dir="rtl" align="right">بررسی در سطح سورس همین مخزن، در هشت حوزه با وزن ثابت، به‌همراه ابزارهایی که واقعاً برای این انتشار اجرا شدند: <bdi>cargo audit</bdi> (پایگاه <bdi>RustSec</bdi> در ۳۰ اکتبر ۲۰۲۶) روی هر دو <bdi>Cargo.lock</bdi>، <bdi>npm audit</bdi> (صفر توصیه) و مرور <bdi>grep</bdi> برای TLS، ظرفیت‌های Tauri، CSP، CI و مواد کلیدی. این <strong>تست نفوذ نیست</strong>؛ آزمون نشت، نصب‌کننده، امضا و اتصال زنده روی سخت‌افزار ویندوز اجرا نشده است. امتیازها قضاوت بازبین بر پایهٔ شواهد جدول‌اند، نه معیار خودکار.</p>
+
 <table dir="rtl" align="right">
-<thead><tr><th align="right">‏#</th><th align="right">‏حوزه</th><th align="right">‏وزن</th><th align="right">‏ویندوز ۱.۳.۰</th><th align="right">‏اندروید ۱.۵.۰</th><th align="right">‏توضیح (ویندوز)</th></tr></thead>
+<thead><tr><th>#</th><th>حوزه</th><th>وزن</th><th>امتیاز</th><th>شواهد و ریسک باقی‌مانده</th></tr></thead>
 <tbody>
-<tr><td align="right">‏۱</td><td align="right">‏اسرار و مدیریت کلید</td><td align="right">‏۱۴</td><td align="right">‏۹۴</td><td align="right">‏۹۵</td><td align="right">‏کلید هوش مصنوعی، ورود <bdi>Zero Trust</bdi>، رمز اشتراک و کانفیگ‌ها با <bdi>DPAPI</bdi> رمز می‌شوند؛ هیچ رمزی در کد نیست. فایل‌های هویت <bdi>WARP</bdi> رمز نشده‌اند.</td></tr>
-<tr><td align="right">‏۲</td><td align="right">‏رمزنگاری، <bdi>TLS</bdi> و مقاومت در برابر <bdi>MitM</bdi></td><td align="right">‏۱۳</td><td align="right">‏۹۵</td><td align="right">‏۹۶</td><td align="right">‏پین <bdi>SPKI</bdi> برقرار است و عیب‌یابی گواهی <strong>و</strong> نام میزبان را می‌سنجد. <bdi>allowInsecure</bdi> خودِ کانفیگ مثل اندروید رعایت می‌شود.</td></tr>
-<tr><td align="right">‏۳</td><td align="right">‏خطر نشت داده (<bdi>DNS</bdi>، <bdi>IPv6</bdi>، <bdi>WebRTC</bdi>، دور زدن تونل)</td><td align="right">‏۱۷</td><td align="right">‏۸۹</td><td align="right">‏۹۰</td><td align="right">‏<bdi>DNS</bdi> داخل تونل، قفل <bdi>WebRTC</bdi>، <bdi>IPv6</bdi> بسته در صورت خطا و کلید قطع اضطراری. پراکسی سیستم برای هر برنامهٔ <bdi>UDP</bdi> مسیر همگانی نیست. هاپ تازهٔ <bdi>tor-link</bdi> داخل کانفیگ می‌ماند و خروجی تازه‌ای ندارد.</td></tr>
-<tr><td align="right">‏۴</td><td align="right">‏سطح اشتراک روی شبکهٔ محلی</td><td align="right">‏۱۰</td><td align="right">‏۸۷</td><td align="right">‏۸۶</td><td align="right">‏نگهبان بدون نشتی، احراز هویت اختیاری، بدون دسترسی به نشانی‌های محلی و بدون قاعدهٔ مستقیم برای مهمان‌ها.</td></tr>
-<tr><td align="right">‏۵</td><td align="right">‏ذخیره‌سازی محلی</td><td align="right">‏۱۲</td><td align="right">‏۸۸</td><td align="right">‏۹۳</td><td align="right">‏<bdi>profile.json</bdi>، لاگ چرخشی و هویت <bdi>WARP</bdi> رمز نشده‌اند؛ فایل کانفیگ <bdi>Xray</bdi> فقط هنگام اجرا وجود دارد.</td></tr>
-<tr><td align="right">‏۶</td><td align="right">‏مجوزها و پیکربندی سیستم</td><td align="right">‏۷</td><td align="right">‏۹۲</td><td align="right">‏۹۷</td><td align="right">‏دسترسی مدیر لازم است (فایروال، سیاست <bdi>WebRTC</bdi>)؛ قواعد محدودند، هنگام قطع حذف و قواعد جامانده پاک می‌شوند.</td></tr>
-<tr><td align="right">‏۷</td><td align="right">‏لاگ و عیب‌یابی</td><td align="right">‏۷</td><td align="right">‏۹۶</td><td align="right">‏۹۷</td><td align="right">‏آی‌پی عمومی، نام میزبان و <bdi>UUID</bdi> پوشانده می‌شوند؛ سرور <bdi>.npvt</bdi> قفل‌شده هرگز در لاگ نمی‌آید؛ خطوط تکراری جمع می‌شوند.</td></tr>
-<tr><td align="right">‏۸</td><td align="right">‏کیفیت کد و پیکربندی شبکه</td><td align="right">‏۸</td><td align="right">‏۹۰</td><td align="right">‏۸۸</td><td align="right">‏شنونده‌ها فقط روی <bdi>loopback</bdi>؛ شروع دوباره محدود؛ زنجیره‌های تور از ریشه درست شدند و آزمون واحد دارند. <bdi>SOCKS</bdi> محلی زنجیره بی‌رمز است (<bdi>SB-5</bdi> اندروید، در هر دو باز).</td></tr>
-<tr><td align="right">‏۹</td><td align="right">‏افشا روی خود دستگاه (صفحه، کلیپ‌بورد)</td><td align="right">‏۶</td><td align="right">‏۹۲</td><td align="right">‏۹۵</td><td align="right">‏لینک کانفیگ قفل‌شده کپی یا نمایش داده نمی‌شود؛ لینک بازی که کاربر کپی کند در کلیپ‌بورد می‌ماند.</td></tr>
-<tr><td align="right">‏۱۰</td><td align="right">‏زنجیرهٔ تأمین و سلامت بیلد</td><td align="right">‏۶</td><td align="right">‏۸۲</td><td align="right">‏۸۰</td><td align="right">‏فایل‌های <bdi>Xray</bdi> با <bdi>SHA-256</bdi> پین شده‌اند و سلامت هسته بررسی می‌شود؛ بدون گواهی در <bdi>CI</bdi> نصب‌کننده امضای <bdi>Authenticode</bdi> ندارد.</td></tr>
-<tr><td align="right"></td><td align="right">‏<strong>جمع</strong></td><td align="right">‏<strong>۱۰۰</strong></td><td align="right">‏<strong><bdi>90.70</bdi> ≈ ۹۱</strong></td><td align="right">‏<strong><bdi>91.96</bdi> ≈ ۹۲</strong></td><td align="right"></td></tr>
+<tr><td>۱</td><td>نشت داده (DNS، IPv6، WebRTC، دور زدن)</td><td>۱۵</td><td>۱۳</td><td>DNS داخل تونل، قفل WebRTC، IPv6 به‌صورت fail-closed و kill switch. پروکسی سیستمی مسیر عمومی برای هر برنامهٔ UDP نیست. نشتی روی سخت‌افزار واقعی ویندوز آزمون نشده است.</td></tr>
+<tr><td>۲</td><td>مجوزها و مؤلفه‌های برنامه</td><td>۱۵</td><td>۱۲</td><td>ظرفیت‌های Tauri حداقلی‌اند (پنجره + shell:allow-open) و CSP بدون منبع راه دور است. برنامه نیاز به دسترسی Administrator دارد و CSP شامل 'unsafe-inline' برای style است.</td></tr>
+<tr><td>۳</td><td>TLS و رمزنگاری</td><td>۱۵</td><td>۱۰</td><td>SPKI pin و تأیید گواهی و نام میزبان در عیب‌یابی حفظ شده‌اند. اما «اسکن Clean IP» (cleanip.rs:517-518) گواهی و نام میزبان نامعتبر را می‌پذیرد، و هسته نیز در bridges.rs و zerotrust.rs گواهی نامعتبر می‌پذیرد.</td></tr>
+<tr><td>۴</td><td>وابستگی‌ها (cargo audit / npm audit)</td><td>۱۵</td><td>۷</td><td>npm audit: صفر. cargo audit روی src-tauri/Cargo.lock: ۱ آسیب‌پذیری (crypto-bigint) و ۱۱ هشدار؛ روی Cargo.lock هسته: ۱۶ توصیهٔ امنیتی، از جمله quinn-proto 0.11.17 (DoS با شدت ۷٫۵) و rustls 0.23.43. این قفل با ادعای «rustls 0.23.46» همخوان نیست.</td></tr>
+<tr><td>۵</td><td>مدیریت کلید و رمز</td><td>۱۵</td><td>۱۲</td><td>کلید هوش مصنوعی، ورود Zero Trust، گذرواژهٔ اشتراک شبکه و کانفیگ‌ها با DPAPI مهر می‌شوند؛ رمز هاردکد دیده نشد و فایل pfx/p12/jks نیست. فایل هویت WARP متن ساده است.</td></tr>
+<tr><td>۶</td><td>داده محلی و لاگ</td><td>۱۰</td><td>۸</td><td>IP، میزبان و UUID در لاگ پوشانده می‌شوند و خطوط تکراری فشرده می‌شوند؛ profile.json و لاگ چرخشی رمزنگاری نشده‌اند.</td></tr>
+<tr><td>۷</td><td>زنجیرهٔ تأمین و CI</td><td>۱۰</td><td>۵</td><td>Xray با SHA-256 پین شده و نگهبان هستهٔ دست‌نخورده/overlay فعال است. اما GitHub Actions با تگ (نه commit hash) ارجاع شده‌اند، dtolnay/rust-toolchain@stable شناور است و نصب‌کننده‌ها Authenticode امضا نمی‌شوند.</td></tr>
+<tr><td>۸</td><td>سرویس‌های محلی و اشتراک LAN</td><td>۵</td><td>۳</td><td>شنودکنندگان فقط loopback‌اند و اشتراک LAN نگهبان zero-leak دارد؛ اما احراز هویت اشتراک به‌صورت پیش‌فرض خاموش است و SOCKS محلی زنجیره بدون رمز است.</td></tr>
+<tr><td></td><td><strong>جمع</strong></td><td><strong>۱۰۰</strong></td><td><strong>۷۰</strong></td><td></td></tr>
 </tbody>
 </table>
-<p dir="rtl" align="right">‏یک امتیاز فاصله از طراحی خاص ویندوز می‌آید (وضعیت غیرمحرمانهٔ رمزنشده، دسترسی مدیر، پراکسی سیستم به‌جای مسیر <bdi>VpnService</bdi>)، نه از یک آسیب‌پذیری باز شناخته‌شده. هیچ تغییری در این بیلد آنچه از رایانه بیرون می‌رود را گسترده‌تر نمی‌کند: رفع تور فقط شکل شکستن <bdi>ClientHello</bdi> را داخل تونلِ خودِ کانفیگ عوض می‌کند.</p>
-<h3 dir="rtl" align="right">‏ورود <bdi>Zero Trust</bdi> پیش از اتصال</h3>
-<ul dir="rtl" align="right">
-<li>‏<strong>اول وارد شوید:</strong> در تنظیمات ← <bdi>Zero Trust</bdi> ← «کد ایمیلی»، دکمهٔ «ورود» پنجره‌ای باز می‌کند: کد به ایمیل فرستاده می‌شود، آن را وارد می‌کنید (سه بار فرصت)، پس از ۳۰ ثانیه «ارسال کد تازه» فعال می‌شود و هر مشکل (تیم یا ایمیل نادرست، کد اشتباه یا منقضی، نبود اینترنت) به زبان ساده توضیح داده می‌شود.</li>
-<li>‏<strong>رمزشده و قابل مشاهده:</strong> ورود با <bdi>Windows DPAPI</bdi> رمز می‌شود، به تیم <strong>و</strong> ایمیل گره می‌خورد و پنل نشان می‌دهد هنوز معتبر است یا نه و تا کی. «فراموش کردن این ورود» آن را پاک می‌کند. توکن هرگز به رابط وب نمی‌رسد.</li>
-<li>‏<strong>کد هنگام اتصال:</strong> اگر موتور وسط اتصال کد ایمیلی بخواهد، پنجره‌ای روی هر صفحه‌ای باز می‌شود. «حالا نه» همان تلاش اتصال را متوقف می‌کند و آن را معطل نمی‌گذارد.</li>
-<li>‏<strong>عضویت:</strong> دستگاه عضوشده وضعیت عضویتش را می‌بیند و با «حذف عضویت این دستگاه» (با تأیید و فقط وقتی قطع است) آن را برمی‌دارد؛ اتصال بعدی دوباره عضو می‌شود.</li>
-<li>‏<strong>توکن سرویس و توکن عضویت:</strong> در «توکن سرویس»، دکمهٔ «آزمایش توکن سرویس» همان مبادلهٔ موتور را بدون ذخیرهٔ چیزی اجرا می‌کند. «توکن دسترسی» (توکن عضویت) چسبانده‌شده همان لحظه بررسی می‌شود (خالی، نامعتبر، منقضی یا معتبر با زمان باقی‌مانده).</li>
-</ul>
-<h3 dir="rtl" align="right">‏اشتراک <bdi>VPN</bdi> روی شبکهٔ محلی</h3>
-<ul dir="rtl" align="right">
-<li>‏<strong>صفحهٔ «اشتراک» بازطراحی شد:</strong> وضعیت زنده («خاموش»، «در انتظار شبکه»، «آماده»، «پورت اشغال است»)، کلید «اشتراک‌گذاری در این شبکه»، نشان «بدون نشتی»، ردیف‌های قابل کپی <bdi>SOCKS5 10810</bdi>، <bdi>HTTP 10811</bdi> و آدرس، نشانی‌های دیگر رایانه، «کپی همهٔ مشخصات»، مراحل راه‌اندازی و نشانی بررسی.</li>
-<li>‏<strong>همهٔ آداپتورهای واقعی:</strong> اشتراک روی همهٔ نشانی‌های <bdi>Wi‑Fi</bdi> و <bdi>Ethernet</bdi> رایانه گوش می‌دهد (آداپتورهای مجازی و <bdi>Wi‑Fi Direct</bdi> کنار گذاشته می‌شوند) و هنگام اتصال، تغییر شبکه را دنبال می‌کند.</li>
-<li>‏<strong>نام کاربری و رمز اختیاری:</strong> مثل اندروید، به‌طور پیش‌فرض خاموش است. وقتی روشن باشد، <bdi>SOCKS5</bdi> (<bdi>RFC 1929</bdi>) و پراکسی <bdi>HTTP</bdi> (<bdi>Basic</bdi>) آن را می‌خواهند. رمزی قوی ساخته می‌شود؛ می‌توانید نام کاربری و رمز دلخواه (دست‌کم ۸ نویسه) بگذارید یا با «ساخت رمز جدید» آن را عوض کنید. هر دو با <bdi>DPAPI</bdi> رمز می‌شوند و هرگز در صفحه‌های اشتراک نمایش داده نمی‌شوند.</li>
-<li>‏<strong><bdi>http://aether.check/</bdi> از هر مسیر:</strong> دستگاه مهمان از راه پراکسی <bdi>HTTP</bdi>، <bdi>SOCKS5</bdi> یا فایل <bdi>PAC</bdi> با باز کردن این نشانی می‌بیند محافظت می‌شود یا نه، از کدام مسیر وصل است و آی‌پی خروجی تونل چیست.</li>
-<li>‏<strong>صفحهٔ راه‌اندازی:</strong> نشانی <bdi>http://&lt;نشانی رایانه&gt;:10811/</bdi> راهنمای دوزبانه (فارسی و انگلیسی)، فایل <bdi>PAC</bdi> (<bdi>/proxy.pac</bdi> و <bdi>/wpad.dat</bdi>)، آزمون زندهٔ نشت <bdi>WebRTC</bdi> و قفل‌های یک‌کلیکی <bdi>WebRTC</bdi> برای <bdi>Windows</bdi>، <bdi>Firefox</bdi>، <bdi>macOS</bdi> و <bdi>Linux</bdi> را دارد. این صفحه‌ها هیچ چیزی از اینترنت بارگذاری نمی‌کنند.</li>
-<li>‏<strong>نگهبان بدون نشتی:</strong> دستگاه‌های مهمان به نشانی‌های خصوصی یا محلی شبکهٔ میزبان دسترسی ندارند، هیچ قاعدهٔ «مستقیم» (بای‌پس) نمی‌گیرند، سرآیندهای شناسایی‌کنندهٔ پراکسی حذف می‌شوند و <bdi>UDP</bdi> از راه <bdi>SOCKS5</bdi> فقط وقتی ارائه می‌شود که موتور بتواند آن را حمل کند.</li>
-</ul>
-<h3 dir="rtl" align="right">‏هسته، مسیریابی و تنظیمات (از پیش در ۱.۳.۰)</h3>
-<ul dir="rtl" align="right">
-<li>‏<strong>هستهٔ دست‌نخوردهٔ <bdi>Aether Core 2.3.0</bdi>:</strong> همهٔ حالت‌های تور از <bdi>tor.exe</bdi> همراه برنامه استفاده می‌کنند و کاشی پروتکل به‌جای <bdi>SMART</bdi> عنوان <bdi>Tor → Psiphon</bdi> را نشان می‌دهد. فرزند سایفون از کامیت سازگار <bdi>CluvexStudio</bdi> ساخته می‌شود و سرورهای همراه را از راه <bdi>AETHER_PSIPHON_SERVER_ENTRIES</bdi> می‌گیرد.</li>
-<li>‏<strong><bdi>DNS</bdi> و مسیریابی:</strong> «بای‌پس سایت‌های ایرانی» و «حذف تبلیغات و ردیاب‌ها» دو کلید اختیاری و مستقل‌اند، با فهرست‌های همراه و به‌روزرسانی هفتگی از داخل تونل. دامنه‌های ایرانیِ غیر از <bdi>.ir</bdi> پیش از مستقیم شدن با <bdi>DNS-over-HTTPS</bdi> از داخل تونل بررسی می‌شوند. در <bdi>Aether → Psiphon</bdi> و <bdi>Tor → Psiphon</bdi> قواعد در پل محلی اعمال می‌شوند.</li>
-<li>‏<strong>سروری که کار می‌کند دیگر دور ریخته نمی‌شود:</strong> برنامه به موتور می‌گفت سرورِ به‌خاطرسپرده را فقط در صورتی دوباره استفاده کن که سریع‌تر از حدود <strong>۳۰۰ میلی‌ثانیه</strong> جواب بدهد — و در شبکه‌هایی که واقعاً از آن‌ها گزارش رسیده، هیچ چیزی این‌قدر سریع جواب نمی‌دهد. پس سرورِ به‌خاطرسپرده هر بار دور ریخته می‌شد و هر اتصال مجدد هزینهٔ یک جست‌وجوی کامل را می‌پرداخت. آن بررسی حالا <strong>به‌طور پیش‌فرض خاموش</strong> است، پس سرورِ به‌خاطرسپرده‌ای که جواب می‌دهد، همان‌طور که موتور همیشه خودش عمل می‌کرد، استفاده می‌شود. اگر روی اتصال سریعی هستید و می‌خواهید برنامه دنبال بهترین سرور بگردد، سوئیچ «فقط اندپوینت سریع را دوباره استفاده کن» هنوز زیر «ترابرد و ضد <bdi>DPI</bdi>» هست — با حدودی که این بار با شبکه‌های واقعی می‌خواند (<bdi>2000/5000</bdi> میلی‌ثانیه مستقیم و <bdi>1200/3500</bdi> میلی‌ثانیه زنجیره‌ای).</li>
-<li>‏<strong>تنظیم <bdi>ECH</bdi> خودتان:</strong> اگر یک <bdi>ECHConfigList</bdi> دارید، می‌توانید زیر «ترابرد و ضد <bdi>DPI</bdi>» بچسبانیدش به‌جای اینکه برنامه خودش یکی بگیرد — جایی به کار می‌آید که شبکه‌تان دقیقاً همان گرفتنِ پیش‌فرض را بلاک می‌کند. نشانه‌گرفتن <bdi>ECH</bdi> به یک دامنهٔ دیگر، آن‌طور که <bdi>v2rayNG</bdi> می‌کند، ممکن نیست: موتور در آن‌جا دامنه نمی‌پذیرد.</li>
-<li>‏<strong><bdi>MTU</bdi> دلخواه</strong> در بازهٔ <strong>۱۲۸۰ تا ۹۰۰۰</strong>.</li>
-<li>‏<strong>هوش مصنوعی و ظاهر:</strong> مدل پیش‌فرض در صورت دسترسی <bdi>Gemini 3.1 Flash-Lite</bdi> است و سقف توکن فقط وقتی نمایش داده می‌شود که گوگل اعلامش کند. کارت اتصال وضعیت، آی‌پی، زمان و ترافیک را یک‌جا نشان می‌دهد و تنظیمات کارت‌های گروه‌بندی‌شده و کاشی‌های افقی دارند.</li>
-<li>‏<strong>حفظ بک‌اند انتخابی:</strong> <bdi>Aether</bdi> فقط پیش‌فرض پروفایل تازه است و بستن و باز کردن برنامه انتخاب کاربر را عوض نمی‌کند.</li>
-</ul>
-<h3 dir="rtl" align="right">‏بسته‌ها</h3>
-<p dir="rtl" align="right">‏خروجی‌ها نصب‌کننده‌های <bdi>x64/x86</bdi> با پسوند <bdi>.exe</bdi> و بسته‌های پرتابل <bdi>.zip</bdi> به‌همراه <bdi>SHA256SUMS.txt</bdi> هستند؛ فایل <bdi>.msi</bdi> وجود ندارد. نسخه در همهٔ فایل‌های مشخصات <bdi>1.3.0</bdi> است و پیش‌بررسی <bdi>CI</bdi> این را کنترل می‌کند. رفتار واقعی تونل و شبکه همچنان باید روی ویندوز آزموده شود.</p>
+
+<p dir="rtl" align="right"><strong>یافته‌هایی که باید بعداً اصلاح شوند</strong> (در این انتشار تغییر نکردند، چون overlay هسته با هش محافظت می‌شود و ویرایش بررسی‌نشده <bdi>check-core-pristine</bdi> را می‌شکند):</p>
+
+<ol dir="rtl">
+<li><strong>توصیه‌های وابستگی هسته:</strong> <bdi>native/aether/aether/Cargo.lock</bdi> نسخه‌های <bdi>rustls 0.23.43</bdi>، <bdi>quinn-proto 0.11.17</bdi> (<bdi>RUSTSEC-2026-0338/0340/0343</bdi>، خرابی/DoS از راه دور)، <bdi>rustls-webpki 0.103.15</bdi>، <bdi>crypto-bigint</bdi>، <bdi>ctutils</bdi>، <bdi>zstd</bdi> و <bdi>rsa 0.9.10</bdi> (بدون اصلاحیه) را پین کرده است. پروژهٔ موبایل در <bdi>CI</bdi> با <bdi>scripts/patch-engine-dependencies.py</bdi> بخشی را ارتقا می‌دهد؛ <bdi>CI</bdi> ویندوز مرحلهٔ معادل ندارد. عبارت قبلی «<bdi>rustls 0.23.46</bdi>» با قفل تحویلی همخوان نبود و در این مستندات اصلاح شد.</li>
+<li><strong>اسکنر Clean IP هر گواهی را می‌پذیرد:</strong> <bdi>src-tauri/src/custom/cleanip.rs:517-518</bdi>. اگر فقط دسترس‌پذیری سنجیده می‌شود و رازی ارسال نمی‌شود، اثر کم است؛ باید مستند یا با بررسی پین‌شده جایگزین شود.</li>
+<li><strong>زنجیرهٔ تأمین:</strong> پین‌کردن <bdi>Actions</bdi> به <bdi>commit SHA</bdi> و نسخهٔ <bdi>Rust</bdi>، و امضای <bdi>Authenticode</bdi> پس از تهیهٔ گواهی (<bdi>.github/expected-signer.txt</bdi> خالی است).</li>
+<li><strong>حالت ذخیره‌شدهٔ متن‌ساده:</strong> هویت <bdi>WARP</bdi>، <bdi>profile.json</bdi> و لاگ رمزنگاری نشده‌اند.</li>
+</ol>
+
 </div>

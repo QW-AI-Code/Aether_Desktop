@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 /// این‌جا تکرار شده چون این منطق پیش از ساختِ پنجره اجرا می‌شود و آن فایل JSON
 /// در همین لحظه در دسترسِ کد نیست. `verify-package.sh` هر دو را با هم می‌سنجد،
 /// تا این دو عدد بی‌صدا از هم جدا نشوند.
-pub const MIN_W: u32 = 960;
-pub const MIN_H: u32 = 640;
+pub const MIN_W: u32 = 360;
+pub const MIN_H: u32 = 720;
 
 /// یک مستطیل در واحدِ منطقی.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ pub struct Geometry {
 }
 
 /// کلیدِ ذخیره در `prefs.json` (همان‌جایی که زبان و مدلِ هوش مصنوعی می‌نشینند).
-pub const PREFS_KEY: &str = "windowGeometry";
+pub const PREFS_KEY: &str = "windowGeometryMobile";
 
 pub fn encode(g: &Geometry) -> String {
     serde_json::to_string(g).unwrap_or_default()
@@ -190,11 +190,11 @@ mod tests {
     #[test]
     fn the_users_own_size_survives() {
         let saved = Geometry {
-            rect: Rect::new(100, 80, 1000, 700),
+            rect: Rect::new(100, 80, 1000, 760),
             maximized: false,
         };
         let g = place(Some(saved), big_screen(), 1180, 780);
-        assert_eq!(g.rect, Rect::new(100, 80, 1000, 700));
+        assert_eq!(g.rect, Rect::new(100, 80, 1000, 760));
     }
 
     #[test]
@@ -251,12 +251,12 @@ mod tests {
     #[test]
     fn the_maximized_flag_survives_but_the_restored_size_stays_underneath() {
         let saved = Geometry {
-            rect: Rect::new(100, 80, 1000, 700),
+            rect: Rect::new(100, 80, 1000, 760),
             maximized: true,
         };
         let g = place(Some(saved), big_screen(), 1180, 780);
         assert!(g.maximized);
-        assert_eq!(g.rect, Rect::new(100, 80, 1000, 700));
+        assert_eq!(g.rect, Rect::new(100, 80, 1000, 760));
     }
 
     #[test]

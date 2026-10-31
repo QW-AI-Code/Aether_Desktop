@@ -48,7 +48,7 @@ window.__TAURI_INTERNALS__ = {
   metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } },
 }
 
-await import('../src/main.js')
+await import('../src/main.js').then(async m => { await m.bootReady; return m })
 const cc = await import('../src/views/customconfigs.js')
 const { setLang } = await import('../src/i18n.js')
 
@@ -81,26 +81,34 @@ document.getElementById('view').appendChild(root)
 await tick()
 const rows = root.querySelectorAll('.ccfg')
 check(rows.length === 2, 'دو کارت رندر شد')
-const pingButtons = root.querySelectorAll('.ccfg__ping-btn')
-check(pingButtons.length === 2, 'هر کارت دکمهٔ پینگ دارد (قفل‌شده هم)')
+const actionButtons = root.querySelectorAll('.ccfg__actions')
+check(actionButtons.length === 2, 'هر کارت دکمهٔ منوی عملیات دارد (قفل‌شده هم)')
 const all = root.querySelector('.cc-ping-all')
 check(!!all && !all.hidden, 'دکمهٔ Test all دیده می‌شود')
 
-pingButtons[1].click()
+actionButtons[1].click()
+await tick()
+const pingItem = [...document.querySelectorAll('.mlist .mbtn')].find((b) => b.textContent === 'Test ping')
+check(!!pingItem, 'منوی عملیات گزینهٔ Test ping دارد')
+pingItem.click()
 await tick()
 check(invoked.some(([c, a]) => c === 'cc_ping' && a?.id === 'b'), 'cc_ping با شناسهٔ همان کارت')
 check(!invoked.some(([c]) => c === 'cc_select'), 'زدنِ پینگ کارت را انتخاب نمی‌کند')
-check(root.querySelectorAll('.ccfg')[1].querySelector('.ccfg__ping')?.textContent === '312 ms', 'نتیجهٔ پینگ روی کارت')
+check(root.querySelector('.ccfg[data-id="b"]').querySelector('.ccfg__ping')?.textContent === '312 ms', 'نتیجهٔ پینگ روی کارت')
 
 root.querySelector('.cc-ping-all').click()
 await tick()
 check(invoked.some(([c]) => c === 'cc_ping_all'), 'cc_ping_all فراخوانده شد')
 const chips = [...root.querySelectorAll('.ccfg__ping')].map((e) => e.textContent)
 check(chips[0] === '140 ms' && chips[1] === '-1 · Filtered', 'نتایجِ Test all روی هر دو کارت')
-check(root.querySelectorAll('.ccfg__ping.is-bad').length === 1, 'کلاسِ is-bad برای −1')
+check(root.querySelectorAll('.ccfg__ping.is-muted').length === 1, 'کلاسِ is-muted برای −1')
 
 // --- paste event
-const paste = root.querySelector('.cc-paste')
+root.querySelector('.cc-add').click()
+await tick()
+;[...document.querySelectorAll('.mlist .mbtn')].find((b) => b.textContent === 'Link or text').click()
+await tick()
+const paste = document.querySelector('.cc-paste')
 const ev = new window.Event('paste', { bubbles: true, cancelable: true })
 ev.clipboardData = { getData: () => dirty }
 paste.dispatchEvent(ev)

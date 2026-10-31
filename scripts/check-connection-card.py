@@ -167,10 +167,12 @@ def main() -> int:
             "Land in der Karte und die Flagge bleibt ein Globus"
         )
     else:
-        pseudo = re.search(r"PSEUDO:\s*\[&str;\s*\d+\]\s*=\s*\[([^\]]*)\]", probe)
-        namen = re.findall(r'"([^"]+)"', pseudo.group(1)) if pseudo else []
-        if "T1" not in namen:
-            fehler.append("`T1` — der Tor-Ausgang bei Cloudflare — steht nicht auf der Liste")
+        iso = re.search(r'const ISO: &str = "([^"\n]+)"', probe)
+        codes = iso.group(1).split() if iso else []
+        if len(set(codes)) != 249 or any(c in codes for c in ["T1","XX","ZZ","QQ","XK"]):
+            fehler.append("country validator must use the 249 assigned ISO codes, excluding pseudo codes")
+        if "ISO.split_ascii_whitespace().any(|c|c==cc)" not in probe:
+            fehler.append("country validator does not enforce membership in the ISO whitelist")
         # An allen drei Stellen, an denen ein Ländercode entsteht.
         trace = re.search(r'strip_prefix\("loc="\)(.*?)\n        \}', probe, re.S)
         if not trace or "is_real_country" not in trace.group(1):
@@ -178,7 +180,7 @@ def main() -> int:
         json_pfad = re.search(r'json_str\(body, "query"\)(.*?)\n    \}', probe, re.S)
         if not json_pfad or "is_real_country" not in json_pfad.group(1):
             fehler.append("der ip-api-JSON-Pfad prüft den Code nicht")
-        refine = re.search(r"fn refine_country\((.*?)\n\}", probe, re.S)
+        refine = re.search(r"fn refine_country_on\((.*?)\n\}", probe, re.S)
         if not refine:
             fehler.append("refine_country ist verschwunden")
         else:
@@ -242,7 +244,7 @@ def main() -> int:
         return 1
 
     print(
-        "✓ Tor nur über tor.exe (Kern unverändert), Schranke "
+        "✓ Tor nur über tor.exe (offizielles Tor, Core-Overlay separat geprüft), Schranke "
         "am Carrier-Port statt am Kettenausgang, erster Hop verdrahtet mit "
         "Rückfall und Reset, Pipeline-Name auf der Kachel, T1/A1/A2/O1/XX kein "
         "Land an allen drei Stellen, eigene Ping-Skala für Tor, vier STUN-Server "

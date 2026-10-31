@@ -399,7 +399,7 @@ const PICK_CHEV =
 const PICK_CHECK =
   '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
 const NOTE_ICON =
-  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor"/><path d="M12 11v5.5M12 7.6v.1" stroke="#0F1626" stroke-width="2.2" stroke-linecap="round"/></svg>'
+  '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor"/><path d="M12 11v5.5M12 7.6v.1" stroke="#0B111D" stroke-width="2.2" stroke-linecap="round"/></svg>'
 
 /** برچسبِ گروه بالای کارت (آبی و کوچک) — `GroupCaption` موبایل. */
 const groupCaption = (text) => `<h3 class="sethub__group scard__caption">${text}</h3>`
@@ -419,21 +419,23 @@ function pickRow(key, title, icon, options, current, opts = {}) {
         <span class="pick__icon">${icon}</span>
         <span class="pick__text">
           <span class="field__label">${title}</span>
-          ${opts.summary ? `<span class="field__hint">${opts.summary}</span>` : ''}
+          
         </span>
-        <span class="pick__value">${flag(value)}<span class="pick__value-text">${t(text)}</span></span>
+        <span class="pick__value">${flag(value)}<span class="pick__value-text">${key === 'backend' ? escHtml(text) : t(text)}</span></span>
         <span class="pick__chev">${PICK_CHEV}</span>
       </div>
+      ${opts.summary ? `<p class="field__hint pick__summary">${opts.summary}</p>` : ''}
       <div class="sheet" hidden>
         <div class="sheet__scrim"></div>
         <div class="sheet__panel" role="dialog" aria-modal="true" aria-label="${title}">
           <span class="sheet__handle" aria-hidden="true"></span>
           <h3 class="sheet__title">${title}</h3>
+          ${options.length >= 10 ? `<input type="search" class="sheet__search" dir="auto" autocomplete="off" spellcheck="false" placeholder="${t('Search country')}" aria-label="${t('Search country')}">` : ''}
           <div class="seg seg--sheet" role="radiogroup" data-key="${key}">
             ${options.map(([v, tx]) => `
               <button type="button" role="radio" class="seg__item ${v === value ? 'is-active' : ''}"
-                      data-value="${v}" aria-checked="${v === value}" ${off ? 'disabled' : ''}>
-                ${flag(v)}<span class="seg__text">${t(tx)}</span><span class="seg__check">${PICK_CHECK}</span>
+                      data-value="${v}" data-en="${escHtml(String(tx))}" aria-checked="${v === value}" ${off ? 'disabled' : ''}>
+                ${flag(v)}<span class="seg__text" ${key === 'backend' ? 'dir="ltr"' : ''}>${key === 'backend' ? escHtml(tx) : t(tx)}</span><span class="seg__check">${PICK_CHECK}</span>
               </button>`).join('')}
           </div>
         </div>
@@ -451,7 +453,7 @@ function tileGrid(label, key, options, current, opts = {}) {
   return `
     <section class="field field--tiles ${off ? 'is-disabled' : ''}">
       <span class="field__label">${label}</span>
-      <div class="seg seg--grid ${options.length % 2 ? 'seg--odd' : ''}" role="radiogroup" data-key="${key}">
+      <div class="seg seg--grid ${options.length % 2 ? 'seg--odd' : ''} ${opts.cards ? 'seg--cards' : ''}" role="radiogroup" data-key="${key}">
         ${options.map(([v, tx]) => `
           <button type="button" role="radio" class="seg__item ${current === v ? 'is-active' : ''}"
                   data-value="${v}" aria-checked="${current === v}" ${off ? 'disabled' : ''}>
@@ -474,15 +476,19 @@ function wirePicks(root) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         const at = items.indexOf(document.activeElement)
-        const next = at === -1 ? 0 : (at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
-        items[next].focus()
+        const vis = items.filter((i) => !i.hidden)
+        if (!vis.length) return
+        const at2 = vis.indexOf(document.activeElement)
+        vis[at2 === -1 ? 0 : (at2 + (e.key === 'ArrowDown' ? 1 : -1) + vis.length) % vis.length].focus()
       }
     }
     const open = () => {
       if (field.classList.contains('is-disabled') || !sheet.hidden) return
       sheet.hidden = false
+      if (search) { search.value = ''; items.forEach((i) => { i.hidden = false }) }
       requestAnimationFrame(() => sheet.classList.add('is-open'))
       document.addEventListener('keydown', onKey, true)
+      if (search) { search.focus(); return }
       ;(items.find((i) => i.classList.contains('is-active')) ?? items[0])?.focus()
     }
     function close() {
@@ -495,6 +501,20 @@ function wirePicks(root) {
     row.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() }
     })
+    // جستجو در گزینه‌ها (کشور): هم نام نمایشی/ترجمه‌شده، هم کد و هم متن اصلی.
+    const search = sheet.querySelector('.sheet__search')
+    if (search) {
+      search.addEventListener('input', () => {
+        const q = search.value.trim().toLowerCase()
+        for (const it of items) {
+          const hay = `${it.dataset.value} ${it.dataset.en || ''} ${it.textContent}`.toLowerCase()
+          it.hidden = !!q && !hay.includes(q)
+        }
+      })
+      search.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); items.find((i) => !i.hidden)?.focus() }
+      })
+    }
     sheet.querySelector('.sheet__scrim').addEventListener('click', close)
     items.forEach((item) => item.addEventListener('click', () => {
       if (item.disabled) return
@@ -573,6 +593,18 @@ const SECTIONS = {
       ${groupFooter(t('Tor carries TCP only \u2014 in every app, on every platform. Aether answers DNS over TCP inside Tor and drops other UDP, so QUIC-capable apps fall back to TCP. That is normal and nothing is leaking: dropped UDP goes nowhere, least of all around Tor. Expect noticeably higher latency, and expect the first connect to take a while \u2014 Tor downloads its directory before it can build a circuit.'))}
     </div>` : ''}
     <div class="scard-group">
+      <div class="sethub__card scard scard--fields">
+        <section class="field field--verify">
+          <div class="verify__row">
+            <span class="pick__icon" aria-hidden="true">${NOTE_ICON}</span>
+            <span class="field__label">${t('Verify connection')}</span>
+            <button type="button" class="switch ${p.verifyConnection !== false ? 'is-on' : ''}" data-key="verifyConnection" role="switch" aria-checked="${p.verifyConnection !== false}"><span class="switch__knob"></span></button>
+          </div>
+          <span class="field__hint">${t('Default on for all six built-in modes. Turning off skips optional initial connection checks, not engine startup, Tor bootstrap, exit-IP lookup or ongoing health monitoring.')}</span>
+        </section>
+      </div>
+    </div>
+    <div class="scard-group">
       ${groupCaption(t('Core'))}
       <div class="sethub__card scard">
         <div class="scard__block">
@@ -581,8 +613,9 @@ const SECTIONS = {
         ${!noWarp && !torReverse(backend) ? `
         <div class="scard__block">
           ${tileGrid(t('Gool mode'), 'goolMode', GOOL_MODES, p.goolMode || 'MODERN', {
+            cards: true,
             notes: {
-              MODERN: t('Modern: WireGuard inside MASQUE, the core 2.3.0 default.'),
+              MODERN: t('Modern: WireGuard inside MASQUE, the core 2.4.0 default.'),
               CLASSIC: t('Classic: the older WireGuard-inside-WireGuard mode.')
             }
           })}
@@ -637,7 +670,7 @@ const SECTIONS = {
     </div>
     ${dropdown('MTU', 'mtu', mtuOptions(p.mtu), String(p.mtu))}
     ${textField(t('Custom MTU'), 'mtu', String(p.mtu), '1280-9000', { hint: t('Safe range: 1280 to 9000 bytes. Lower it if connections stall.') })}
-    ${dropdown('Keepalive', 'keepalive', KEEPALIVE_PRESETS.map((v) => [String(v), v === 0 ? t('Off') : `${v}s`]), String(p.keepalive))}
+    ${dropdown(t('Keepalive'), 'keepalive', KEEPALIVE_PRESETS.map((v) => [String(v), v === 0 ? t('Off') : `${v}s`]), String(p.keepalive))}
     ${toggle(t('Quick reconnect'), 'quickReconnect', t('Reconnect instantly after a drop'), p.quickReconnect)}
     ${toggle(t('Only reuse a fast endpoint'), 'fastEndpointOnly', t('Quick reconnect skips the scan for the last endpoint that worked. With this on it is also checked for speed, and a slow one is replaced by a fresh scan instead of halving your download and upload for the whole session.'), p.fastEndpointOnly)}
     ${toggle(t('MASQUE over HTTP/2'), 'masqueHttp2', t('Helps on networks that block HTTP/3'), p.masqueHttp2)}
@@ -665,7 +698,7 @@ const SECTIONS = {
       <span class="field__hint" id="caps-note-text"></span>
     </section>
     <div id="v15-zt">
-    ${textField(t('Team name'), 'team', p.team, 'your-team', { hint: t('Connect as a managed device of a Cloudflare Zero Trust organization. Leave empty for normal WARP.') })}
+    ${textField(t('Team name'), 'team', p.team, t('your-team'), { hint: t('Connect as a managed device of a Cloudflare Zero Trust organization. Leave empty for normal WARP.') })}
     <div id="zt-extra" ${(p.team || '').trim() ? '' : 'hidden'}>
       ${segmented(t('Sign-in method'), 'accessMode', ACCESS_MODES, p.accessMode)}
       <div id="zt-fields">
@@ -720,6 +753,38 @@ const SECTIONS = {
     </section>
     </div>`,
 
+
+  // ۱.۴.۰ / هستهٔ 2.4.0 — اثرانگشت TLS و مسیر API. همه‌ی مقادیر خالی = پیش‌فرض
+  // هسته (چیزی فرستاده نمی‌شود)؛ سمت Rust مقادیر را پاک‌سازی می‌کند.
+  tls: (p) => `
+    <div id="v24-tls">
+    <h3 class="view__subtitle">${t('Server names (SNI)')}</h3>
+    ${textField(t('MASQUE server name'), 'masqueSni', p.masqueSni, 'www.cloudflare.com', { hint: t('The name the MASQUE handshakes put in their ClientHello. Empty = core default.') })}
+    ${textField(t('API address'), 'apiAddress', p.apiAddress, '203.0.113.5:443', { hint: t('Send the calls to the WARP API to this IP or name instead of the default. Empty = default.') })}
+    ${textField(t('API server name (SNI)'), 'apiSni', p.apiSni, 'example.com', { hint: t('The server name the ClientHello of those API calls sends.') })}
+    ${textField(t('API host'), 'apiHost', p.apiHost, 'api.cloudflareclient.com', { hint: t('The HTTP host of those API calls.') })}
+    <h3 class="view__subtitle">${t('Certificate checks')}</h3>
+    ${toggle(t('Verify the MASQUE gateway certificate'), 'tlsVerify', t('Hold the gateway certificate to the pins the core carries. Always on with Zero Trust.'), !!p.tlsVerify)}
+    ${textField(t('Trust anchor IDs'), 'tlsTrustAnchors', p.tlsTrustAnchors, '11129.9.1:11129.9.4', { hint: t('Dotted IDs separated by a colon. Empty = none.') })}
+    ${segmented(t('Certificate compression'), 'tlsCertCompression', [['', 'Off'], ['brotli', 'brotli'], ['zlib', 'zlib'], ['zstd', 'zstd']], ['', 'brotli', 'zlib', 'zstd'].includes(p.tlsCertCompression) ? p.tlsCertCompression : '')}
+    <h3 class="view__subtitle">${t('TLS fingerprint')}</h3>
+    ${textField(t('TLS 1.2 cipher suites'), 'tlsCiphers', p.tlsCiphers, 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256', { hint: t('Names separated by a colon. Empty = Chrome default.') })}
+    ${textField(t('TLS 1.3 cipher suites'), 'tls13Ciphers', p.tls13Ciphers, 'TLS_AES_128_GCM_SHA256:TLS_CHACHA20_POLY1305_SHA256', { hint: t('Standard names separated by a colon, in order. Empty = Chrome default.') })}
+    ${textField(t('TLS groups'), 'tlsGroups', p.tlsGroups, 'P-256:X25519:P-384', { hint: t('Groups in order. Empty = core default.') })}
+    ${textField(t('Key shares'), 'tlsKeyShares', p.tlsKeyShares, 'X25519MLKEM768:X25519', { hint: t('Groups that get a key share; each must be one of the TLS groups. Empty = Chrome default.') })}
+    ${textField(t('Signature algorithms'), 'tlsSigalgs', p.tlsSigalgs, 'ecdsa_secp256r1_sha256:rsa_pss_rsae_sha256', { hint: t('BoringSSL names separated by a colon. Empty = core default.') })}
+    ${segmented(t('ALPS'), 'tlsAlps', [['', 'Off'], ['new', 'New'], ['old', 'Old']], ['new', 'old'].includes(p.tlsAlps) ? p.tlsAlps : '')}
+    ${textField(t('Server padding (bytes)'), 'tlsServerPadding', p.tlsServerPadding, '6000', { hint: t('Bytes of padding asked of the server, 0 to 65535. Empty = none.') })}
+    ${toggle(t('Disable GREASE'), 'disableGrease', t('Leave out the GREASE values Chrome sends.'), !!p.disableGrease)}
+    ${toggle(t('GREASE signature algorithm'), 'enableGreaseSigalgs', t('Put a GREASE value first among the signature algorithms, as Chrome does.'), !!p.enableGreaseSigalgs)}
+    ${toggle(t('ECH GREASE'), 'enableEchGrease', t('Send a GREASE ECH extension when no ECH key is offered.'), !!p.enableEchGrease)}
+    ${toggle(t('Disable OCSP stapling'), 'disableOcspStapling', t('Leave out the status_request extension.'), !!p.disableOcspStapling)}
+    ${toggle(t('Disable SCT'), 'disableSct', t('Leave out the signed_certificate_timestamp extension.'), !!p.disableSct)}
+    ${toggle(t('Disable session tickets'), 'disableSessionTicket', t('Leave out the session_ticket extension.'), !!p.disableSessionTicket)}
+    ${toggle(t('Disable extension permutation'), 'disableExtensionPermutation', t('Keep one fixed order of the extensions instead of Chrome\'s per-handshake shuffle.'), !!p.disableExtensionPermutation)}
+    <section class="field"><span class="field__hint" id="tls24-note"></span></section>
+    </div>`,
+
 }
 
 /**
@@ -757,7 +822,7 @@ export function renderAdvanced(sections) {
       // متنِ کشورِ خروجی عوض می‌شود، و در زنجیرهٔ برعکس انتخابگر پروتکل
       // دلیلِ قفل‌بودنش را می‌نویسد. بدون بازرندر، پنل حرفِ حالتِ قبلی را می‌زد.
       if (key === 'accessMode' || key === 'backend' || key === 'goolMode') {
-        refreshTab('advanced')
+        refreshTab(app.tab === 'tunnel' ? 'tunnel' : 'advanced')
       }
     })
   })
@@ -771,7 +836,7 @@ export function renderAdvanced(sections) {
         : raw
       await saveProfile({ [key]: value })
       if (key === 'endpointMode' || key === 'splitMode') {
-        refreshTab('advanced')
+        refreshTab(app.tab === 'tunnel' ? 'tunnel' : 'advanced')
       }
     })
   })
@@ -791,7 +856,7 @@ export function renderAdvanced(sections) {
       // ECH فیلدِ ECHConfigList را نشان/پنهان می‌کند؛ دو کلیدِ فهرستِ هوشمند
       // زیرنویسِ شمارش و هشدارِ اشتراک را. بدون بازرندر، پنل حالتِ قبلی را می‌گفت.
       if (['ech', 'bypassIran', 'blockAds', 'lanShare'].includes(tg.dataset.key)) {
-        refreshTab('advanced')
+        refreshTab(app.tab === 'tunnel' ? 'tunnel' : 'advanced')
       }
     })
   })
@@ -847,7 +912,7 @@ export function renderAdvanced(sections) {
       await saveProfile({ [key]: value })
       // v10: پاک/پر شدن نام تیم، بخش Zero Trust را نشان/پنهان می‌کند.
       if (key === 'team') {
-        refreshTab('advanced')
+        refreshTab(app.tab === 'tunnel' ? 'tunnel' : 'advanced')
       }
       if (key === 'accessEmail' || key === 'accessId' || key === 'accessSecret') ztRefresh(root).catch(() => {})
       // سخت‌سازی امنیتی: مقدار محرمانه بعد از ذخیره از DOM پاک می‌شود تا
@@ -897,6 +962,12 @@ export function renderAdvanced(sections) {
       gate('#v15-dns', caps.customDns)
       // v11: قابلیت‌های هستهٔ 1.7.0 جداگانه گیت می‌شوند.
       gate('#v17-upstream', caps.upstream)
+      // هستهٔ 2.4.0 — گزینه‌های TLS/API روی هستهٔ قدیمی‌تر غیرفعال و توضیح‌دار.
+      gate('#v24-tls', caps.tls24)
+      if (!caps.tls24) {
+        const n = root.querySelector('#tls24-note')
+        if (n) n.textContent = t('The TLS and API options need engine core 2.4.0 or newer. The bundled core is older, so they are disabled.')
+      }
       gate('#v17-sniff', caps.routeSniff)
       gate('#v17-identity', caps.routeSniff)
       // v13 — تور از هستهٔ 2.0.0. اگر هستهٔ همراه قدیمی‌تر باشد، بک‌اندهای تور

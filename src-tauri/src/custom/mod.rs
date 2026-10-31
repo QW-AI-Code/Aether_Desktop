@@ -26,11 +26,18 @@
 //!  * [`process`] — اجرای `xray.exe` (پورتِ `XrayProcess.kt`)
 //!  * [`import`]  — دانلودِ اشتراک و خواندنِ فایل (پورتِ `ConfigImporter.kt`، بی‌QR)
 
+pub mod cleanip;
 pub mod import;
 pub mod npvt;
+pub mod npvo;
+pub mod present;
+pub mod npvs;
+pub mod selection;
+pub mod ai_policy;
 pub mod parser;
 pub mod process;
 pub mod realdelay;
+pub mod speedtest;
 pub mod store;
 pub mod xray;
 
@@ -43,8 +50,7 @@ pub const MAX_NOTE: usize = 600;
 
 /// کانفیگ از کجا آمد. فقط در فهرست دیده می‌شود و رفتار را عوض نمی‌کند.
 ///
-/// `Qr` فقط برای خواندنِ انبارِ کپی‌شده از جای دیگر نگه داشته شده؛ ویندوز
-/// هرگز کانفیگی با این منبع نمی‌سازد.
+/// `Qr` شامل ورود محلی QR از تصویر است؛ به مجوز دوربین نیاز ندارد.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ConfigSource {
@@ -575,3 +581,5 @@ mod tests {
         assert_eq!(&a[14..15], "4");
     }
 }
+
+pub mod cancel;

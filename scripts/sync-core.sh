@@ -2,7 +2,7 @@
 # =============================================================================
 #  همگام‌سازی هستهٔ Aether — هستهٔ دست‌نخورده (pristine).
 # -----------------------------------------------------------------------------
-#  از ۱.۳.۰ (بازسازی روی Aether 2.3.0) هستهٔ native/aether کپیِ بایت‌به‌بایتِ
+#  از ۱.۳.۰ (بازسازی روی Aether 2.4.0) هستهٔ native/aether کپیِ بایت‌به‌بایتِ
 #  آپ‌استریم است: هیچ پچ، هیچ build.rs اختصاصی و هیچ .upstream-baseline ندارد.
 #  پس ارتقا دیگر merge سه‌طرفه نیست: کلِ درخت با نسخهٔ جدید عوض می‌شود، فایلِ
 #  CORE_VERSION (هم native/aether و هم ریشه) نوشته می‌شود و مانیفستِ
@@ -12,7 +12,7 @@
 # =============================================================================
 set -euo pipefail
 
-BASELINE="2.3.0"
+BASELINE="2.4.0"
 CORE_DIR="native/aether"
 PREV_DIR="native/.core-prev"
 STATE_FILE="native/.core-sync-state"
@@ -54,6 +54,12 @@ echo "Upstream latest: ${LATEST}"
 if [[ "$LATEST" == "$VENDORED" ]]; then
   note "Core already at ${VENDORED}."
   emit core_version "$VENDORED"; exit 0
+fi
+
+# 1.4.0: never silently discard reviewed mobile networking/security fixes.
+if [[ -f CORE_PORT_PATCHES.json ]]; then
+  echo "::error::Core 2.4.0 has a reviewed mobile overlay. Rebase CORE_PORT_PATCHES.json explicitly before upgrading the core."
+  exit 1
 fi
 
 TMP="$(mktemp -d)"

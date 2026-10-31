@@ -1,0 +1,672 @@
+{
+  "mobile_version": "1.6.0",
+  "desktop_version": "1.4.0",
+  "purpose": "Source inventory, NOT a claim of completed line-by-line semantic parity",
+  "files": [
+    {
+      "path": "AetherApp.kt",
+      "sha256": "58bfeb5b80af4d177fd4adb73fe304e89e639067798730d6f59a33ff30270d4f",
+      "bytes": 8861
+    },
+    {
+      "path": "ConfigImportActivity.kt",
+      "sha256": "2752a2501c03cdecd5e59c22cf4254ca82d01837f542007de2a351f742ee22ec",
+      "bytes": 6114
+    },
+    {
+      "path": "CrashReportActivity.kt",
+      "sha256": "346584f7dfcc2fb010bafc09173889e24c8c7ca820feb62f99b730a8b330d3dc",
+      "bytes": 6797
+    },
+    {
+      "path": "MainActivity.kt",
+      "sha256": "2c7c1e44ec4c6a4aec4c6474483f75d2e96f58a43e2815929370887d390ff554",
+      "bytes": 15176
+    },
+    {
+      "path": "ai/AiGate.kt",
+      "sha256": "4a2a4e0d6fa535318e3448bffe837b5c89545f17e15b21c64acd625598ab4675",
+      "bytes": 4674
+    },
+    {
+      "path": "ai/AiMarkdown.kt",
+      "sha256": "13ac719cb8e9fb37de6acc6b6d3b7358681c7d9d07ba6d97893bf60de7f6a117",
+      "bytes": 21255
+    },
+    {
+      "path": "ai/AiModelPolicy.kt",
+      "sha256": "471725093efe304e8e09e647ade3483034b3f00a6eb31a1ed053c8aabb2333c4",
+      "bytes": 6692
+    },
+    {
+      "path": "ai/AiPatch.kt",
+      "sha256": "44f2503b097fdef045276cf22664c3d004ac1926f19f39b41dbac896bc83dd87",
+      "bytes": 18838
+    },
+    {
+      "path": "ai/AiPrompts.kt",
+      "sha256": "b478011bed0d2d8e3774279cc1fb1c172b1d450c4c4efb076357f0b811655cb3",
+      "bytes": 24519
+    },
+    {
+      "path": "ai/AiRedaction.kt",
+      "sha256": "93332bfca7da8d592c4f8dfc743916ec2fbee927b1643eb201792364bea8d4ff",
+      "bytes": 14654
+    },
+    {
+      "path": "ai/AiSession.kt",
+      "sha256": "62ea2aac9776c7987041e88991438049d9637e9cd998112a71b6d35931884e1e",
+      "bytes": 43440
+    },
+    {
+      "path": "ai/AiTopic.kt",
+      "sha256": "0f157bed0087b5e104dace2bb53c229372dde9ff662a28abdc703e7e8fd635b0",
+      "bytes": 29089
+    },
+    {
+      "path": "ai/GeminiClient.kt",
+      "sha256": "14a4993979ac87c07111adb43fc6a315fb38db6f4d74d0136ec307b180a01a2f",
+      "bytes": 20568
+    },
+    {
+      "path": "ai/GeminiHttp.kt",
+      "sha256": "ae1c10267cd013c86f8ac35f0fc17b56dea376603a3d1da51a1719296bc761cf",
+      "bytes": 13137
+    },
+    {
+      "path": "core/AccessToken.kt",
+      "sha256": "cd7b28895c267f9a574d191766197c3e8da55c24886567d93bc9ce7e3d508c9d",
+      "bytes": 5354
+    },
+    {
+      "path": "core/AetherController.kt",
+      "sha256": "8b60ded605637b594a42e447f535b5e52a4f0693c7c1c714edc210a22a07a21d",
+      "bytes": 14289
+    },
+    {
+      "path": "core/AetherProcess.kt",
+      "sha256": "89d86791f26b06669ea6e3ccd8071267779d81d37ac5b60bf4445c7d022b1740",
+      "bytes": 19473
+    },
+    {
+      "path": "core/BuildProvenance.kt",
+      "sha256": "8fafca2ebfdf2a2c81903fd3f63b883f6d6a59ca7e7166656632cd9b2e22f15b",
+      "bytes": 6955
+    },
+    {
+      "path": "core/ConnectionOwnerResolver.kt",
+      "sha256": "1951cef599482107c2e5a2bdbb9d5fc0a6b4f0b6e4317cbeb21bbb4222ef6301",
+      "bytes": 3017
+    },
+    {
+      "path": "core/Diagnostics.kt",
+      "sha256": "5a8b4de80dc4069ab6686d2d1b14b7d9f450c433bf44a97b6b865bfacda22eba",
+      "bytes": 16611
+    },
+    {
+      "path": "core/DiagnosticsLog.kt",
+      "sha256": "4765b78d61f3c3e5d16a4e826ba596510edc4d28bb8c7fa5a67c8f77c7c37e4a",
+      "bytes": 20361
+    },
+    {
+      "path": "core/DnsMap.kt",
+      "sha256": "626224ba851caac92af48099366df06c7379b84336f2f9377d3405ed29a80e78",
+      "bytes": 2050
+    },
+    {
+      "path": "core/EncryptedLogFile.kt",
+      "sha256": "9a7220e1302ef8ff5de7d8297e198de9c985e7f378fa628a241cd8b8b5f98c7f",
+      "bytes": 13420
+    },
+    {
+      "path": "core/EngineMeta.kt",
+      "sha256": "1fe07adee51f873e92f5b88d307985ac7f1fd1dc46aa79b2a8f0272a92a1985c",
+      "bytes": 4144
+    },
+    {
+      "path": "core/HevTunnel.kt",
+      "sha256": "640f83de937e16fe089adc33dd4c0f0152d584c6f7df69f30f45b6da6aff3b1b",
+      "bytes": 4219
+    },
+    {
+      "path": "core/IdentityVault.kt",
+      "sha256": "5b92ef1a2b9d33bf4a921676850a0b51dd182063d47fccdf8154b1a1271437cb",
+      "bytes": 8221
+    },
+    {
+      "path": "core/KeyVault.kt",
+      "sha256": "773d0b5d5621d3b7191194851261d0a2b66d1afa0cef8ce0e0b52cf4c6b9fd9f",
+      "bytes": 5929
+    },
+    {
+      "path": "core/LanGuard.kt",
+      "sha256": "e2b3c1e1e27ca73594f7784695cf18bb31443668586548b7f8cd2448fcf4b86f",
+      "bytes": 6994
+    },
+    {
+      "path": "core/LogRepository.kt",
+      "sha256": "c414c54d19057c1861bc22a58060796f34d081eeedd7270658410bee576c14cb",
+      "bytes": 498
+    },
+    {
+      "path": "core/LoginCodePrompt.kt",
+      "sha256": "34ae754a6a641e23646aeffc804816edf9578bb691c2fde003ab1526ca7bfd51",
+      "bytes": 7873
+    },
+    {
+      "path": "core/NetProbe.kt",
+      "sha256": "c3ceb0f00cfddcf78759588e387acb8251acee655af19b62335ee9e87936820a",
+      "bytes": 42163
+    },
+    {
+      "path": "core/NetworkIdentity.kt",
+      "sha256": "b8d9e58d881bad28b6d99cafd647460f945291c88bbf8073e388be0a969c583e",
+      "bytes": 6810
+    },
+    {
+      "path": "core/PingMonitor.kt",
+      "sha256": "804404543dfd1b4630f9f4094be0a44a0715922bc6d27bb14a87734f277f21c6",
+      "bytes": 18127
+    },
+    {
+      "path": "core/PortLease.kt",
+      "sha256": "408c8a4ae3b999511f8d6ad9c03f4bd006f5701d03fac810badf36fa9899c3c9",
+      "bytes": 9223
+    },
+    {
+      "path": "core/PortProbe.kt",
+      "sha256": "d158caca1dab2d2b1c5087f62c442d06af0dff10ae18badd979695172994599f",
+      "bytes": 3580
+    },
+    {
+      "path": "core/PsiphonBootstrap.kt",
+      "sha256": "03861e436c34f92580504dec6320736c5d50b24147484ae9d0db8ebdab9d187d",
+      "bytes": 12098
+    },
+    {
+      "path": "core/PsiphonEngine.kt",
+      "sha256": "bb6694ad7a19e869c6f744f1c667aef2de6010a6ce8e36ce16bfb996e4e70871",
+      "bytes": 4164
+    },
+    {
+      "path": "core/RoutingEngine.kt",
+      "sha256": "2ca1c77b91ec97b785c17989e70becbe38b977169cbdbf8733892761e9d0a359",
+      "bytes": 7308
+    },
+    {
+      "path": "core/ShareBridge.kt",
+      "sha256": "c77c1dceb6abdab1febcb3682b4b971a50f8fbc98e9c846caf9cb2111f1efd97",
+      "bytes": 68713
+    },
+    {
+      "path": "core/ShareLeakGuard.kt",
+      "sha256": "88816bbf7e510a6a8f9c12570dea973e13879442352d331ec0d5693cb7a3de5c",
+      "bytes": 22283
+    },
+    {
+      "path": "core/SharePages.kt",
+      "sha256": "3ecf070644cd356981e8e89b6706dc96d03db5dd93f2906eee416d719ff62ec4",
+      "bytes": 57053
+    },
+    {
+      "path": "core/SignerIdentity.kt",
+      "sha256": "b646bdcc6f619787ccea293130b503e48d829efef8ae375984bf65e437ba4aa2",
+      "bytes": 8300
+    },
+    {
+      "path": "core/SmartAuto.kt",
+      "sha256": "2089349250ef621d20be3c969ff6072e543c5bd935500c4a0df8c3ef5e33dc72",
+      "bytes": 16880
+    },
+    {
+      "path": "core/SmartLists.kt",
+      "sha256": "82bd5595a22b12d1ea21f6bd48dff0a3222155bbc22bb951989a686dcff9408c",
+      "bytes": 15882
+    },
+    {
+      "path": "core/SmartPlusMemory.kt",
+      "sha256": "81cd77d045a1a312e8c76851dc17929c23e34fb0bfe8f0c93657167518a67260",
+      "bytes": 8575
+    },
+    {
+      "path": "core/SmartPlusPlan.kt",
+      "sha256": "e037cdce9c79818cbec78ef8d674683f5a834f8ac680d751b0e6e78d909a46ab",
+      "bytes": 18113
+    },
+    {
+      "path": "core/SmartRoutes.kt",
+      "sha256": "8632e16504393629f3eb8968114fd99534f7bc11e96f6853faa516a0152e07a9",
+      "bytes": 26471
+    },
+    {
+      "path": "core/SocksTunBridge.kt",
+      "sha256": "b6a585f0a05ee2c31ad31fd45dd88c52a14dc50ef57cea8d4f7e1dd234686532",
+      "bytes": 57534
+    },
+    {
+      "path": "core/TProxyService.kt",
+      "sha256": "502caa19a43f4801520a7cd11fd52250ed3311910a83de1264a11ca174d4a904",
+      "bytes": 4606
+    },
+    {
+      "path": "core/TeamMembership.kt",
+      "sha256": "376e55e11c0896c07ba579a2299405049c692feb32fb5744a99974135c15b26c",
+      "bytes": 3779
+    },
+    {
+      "path": "core/TeamSignInHandoff.kt",
+      "sha256": "6a3cd3da621c234bcfab8bc7caa5241f4b6e2d5202f92e922465366a83d4437b",
+      "bytes": 3091
+    },
+    {
+      "path": "core/TeamSignInRecord.kt",
+      "sha256": "44d549563f19e858f929d8f34ae04fc31461afc7d8091cd5d5b05ab3b5625c80",
+      "bytes": 4833
+    },
+    {
+      "path": "core/TorBootstrap.kt",
+      "sha256": "3d0a1020f082f6a020a42ca199b5bca2f93231b595bd7dd5dc0cface6ca67557",
+      "bytes": 4969
+    },
+    {
+      "path": "core/TrafficSniffer.kt",
+      "sha256": "8c8dc1626780ef9f31af43ff727fe640a09b843a11791696e13ae2910388fdce",
+      "bytes": 3102
+    },
+    {
+      "path": "core/TunnelConfig.kt",
+      "sha256": "4eb78d00c49ca7ee656d7afb30d7be11d48f6503ca4d38a52a5e5ba75e8b5b63",
+      "bytes": 3886
+    },
+    {
+      "path": "core/TunnelExitMonitor.kt",
+      "sha256": "8b9a99f86b1a98499ea014e7e227b1cf8c89469cb30235bc37cff6144a925839",
+      "bytes": 2660
+    },
+    {
+      "path": "core/ZeroTrustSignIn.kt",
+      "sha256": "337f87010e8721076ad1797b833d40a6cfd4f92b2b0c28fcd27673b575018f98",
+      "bytes": 19186
+    },
+    {
+      "path": "core/ZeroTrustWeb.kt",
+      "sha256": "cc48121cc1b6cf74caf177fad0f519183eab4d55c51a8d165b14a6172c0e4205",
+      "bytes": 10459
+    },
+    {
+      "path": "custom/AutoSelectPolicy.kt",
+      "sha256": "78f43ed7d63a2977b54dd472aa7630c8d63ad21a6afe90359fbd69cc294b34ba",
+      "bytes": 1005
+    },
+    {
+      "path": "custom/ConfigCatalog.kt",
+      "sha256": "89417535606b919d76ce6eeb4998d8d57e85e619fe343263e54a2a40a45329b5",
+      "bytes": 6307
+    },
+    {
+      "path": "custom/ConfigImporter.kt",
+      "sha256": "dea3462564c4275a9c68a479416986703d59d853dbb7b884176ea47b5deeabb5",
+      "bytes": 8843
+    },
+    {
+      "path": "custom/ConfigParser.kt",
+      "sha256": "65a5c81af0fb690ca39bfb8a6c94801401d836ab60d7b02283a6af21e33321cc",
+      "bytes": 44682
+    },
+    {
+      "path": "custom/ConfigPing.kt",
+      "sha256": "32712bed9fe68a1b8a4cbed2ac33ddd2f9663c6da20ebae9974e41e11362db78",
+      "bytes": 13020
+    },
+    {
+      "path": "custom/ConfigPingStore.kt",
+      "sha256": "82cf09e8201c7405c1b600412cc3e25d899f72b55303dbc16446cf54750a896c",
+      "bytes": 7640
+    },
+    {
+      "path": "custom/CustomChainPolicy.kt",
+      "sha256": "a4cc1fd333f84f1acfa39a2e5cb5020134f29ff384f19cf2a4c5b0040b32111b",
+      "bytes": 1627
+    },
+    {
+      "path": "custom/CustomConfig.kt",
+      "sha256": "80db28d47f9ba1ffd28019b7662d6db266a84b8a378b1ea9cb59c4c58a020b4a",
+      "bytes": 7688
+    },
+    {
+      "path": "custom/CustomConfigStore.kt",
+      "sha256": "a75845c614a0a679d53ba547a9131d463009463ef7c982c5fce7df23c692c17b",
+      "bytes": 13846
+    },
+    {
+      "path": "custom/CustomReadiness.kt",
+      "sha256": "f52b43c8ab4e40267fa91f7644e9be45802f08ad53369c615ea35a2bee24d5bd",
+      "bytes": 997
+    },
+    {
+      "path": "custom/NpvsCodec.kt",
+      "sha256": "7075d60d28d191c2c9f700de0d434c088f2fcff54eab2abe173f7ebbeee0cd63",
+      "bytes": 11912
+    },
+    {
+      "path": "custom/NpvtCodec.kt",
+      "sha256": "28fac6f0c44602bab7de024fd4032defedb98d2c58c6ff908f433617e7f88039",
+      "bytes": 8768
+    },
+    {
+      "path": "custom/PingQuality.kt",
+      "sha256": "e6b933101c56ea5db8b92adb4947caa7f330a10280b70c13efaf7b7c1ffff835",
+      "bytes": 450
+    },
+    {
+      "path": "custom/RealDelay.kt",
+      "sha256": "3c5981656c168072487e854248fca4070f00ca5e114cab885010315cd234d248",
+      "bytes": 20291
+    },
+    {
+      "path": "custom/XrayConfigBuilder.kt",
+      "sha256": "f33ff5182b41dd46058f92a9e71c45b39ceb4995a71f24f6545bb257f3ce20cb",
+      "bytes": 15375
+    },
+    {
+      "path": "custom/XrayProcess.kt",
+      "sha256": "5a5e0fd49aa0ace3f5a706706e24703b3f36e0ac923f5a2c2d020bff2f521e0b",
+      "bytes": 6444
+    },
+    {
+      "path": "data/AnnouncementStore.kt",
+      "sha256": "e5a4824f70c8ba341a43eb8cbe63e39b9d2f1ea0bb9c074bfcd5d6805f1819b8",
+      "bytes": 3244
+    },
+    {
+      "path": "data/GeminiStore.kt",
+      "sha256": "3500534f8c1f0e792d0d0627f4703595ac20d706fbd9dedfc424720589d5defa",
+      "bytes": 7896
+    },
+    {
+      "path": "data/LanguagePrefs.kt",
+      "sha256": "9fbe881d1e81e9cc7467b0be499ecd7a12ce46ae517391f9be2a916aad7325e7",
+      "bytes": 9706
+    },
+    {
+      "path": "data/ProfileStore.kt",
+      "sha256": "e28b3443006842b4abd0614b34895144392df075209f8d9b4121a4d4ac3a0444",
+      "bytes": 15561
+    },
+    {
+      "path": "data/SecretStore.kt",
+      "sha256": "7ecc13d686006d7880ab97bc46cca43cd915dca5e3e8148d259d2d7e0f12e27e",
+      "bytes": 5572
+    },
+    {
+      "path": "data/ShareCredentials.kt",
+      "sha256": "c45c72cce1bb9e76a4871e66b81d08e45af92da9fb9a8b3ea43a9a60749547bd",
+      "bytes": 4527
+    },
+    {
+      "path": "data/TeamSignInStore.kt",
+      "sha256": "be4f1b8c5022407b5feede7d0a855895d416e620b24866910312e09e9fe927f4",
+      "bytes": 1327
+    },
+    {
+      "path": "model/ConnectionState.kt",
+      "sha256": "9c7a5fedbdedc299284978b0fa1c024c13cab5de6c185feb8c582014eaae10c1",
+      "bytes": 4394
+    },
+    {
+      "path": "model/Profile.kt",
+      "sha256": "2fd553f22f0ca5cd5529580a612546e60e7574b11515a64484372dbb29b0ba61",
+      "bytes": 54926
+    },
+    {
+      "path": "model/Routing.kt",
+      "sha256": "329af0c7f4115cd47abd5493e70c756bbe2f98fc339f2c74d8603a432086dce6",
+      "bytes": 473
+    },
+    {
+      "path": "model/TransportBackend.kt",
+      "sha256": "3166abe39655439e3e9f92241653ed112a9b6a92c7102cadbb8725ec7190b873",
+      "bytes": 12160
+    },
+    {
+      "path": "model/VerificationPolicy.kt",
+      "sha256": "98e989494794db2c67956532826457f777d2697e288100b36967ca530eba3892",
+      "bytes": 296
+    },
+    {
+      "path": "transport/ConnectionLog.kt",
+      "sha256": "3911c0554a943261084f6971244408c45a867b487116b99e42de62a6852d307a",
+      "bytes": 196
+    },
+    {
+      "path": "transport/ExitRegions.kt",
+      "sha256": "f1e94a35bc621fe407586d362417a17e505bb4663e291d255d1d46907d142891",
+      "bytes": 3315
+    },
+    {
+      "path": "transport/ExternalTransport.kt",
+      "sha256": "9bbbadd27795f373d7cc8dc33fc83325c210e5ffe20ba46b849cf91da560ce8a",
+      "bytes": 1670
+    },
+    {
+      "path": "transport/PsiphonSocksFront.kt",
+      "sha256": "27a3c26c0ecaff676017f978405eb42b5d9ea9406213b5df887229d187871376",
+      "bytes": 138077
+    },
+    {
+      "path": "transport/PsiphonTransport.kt",
+      "sha256": "5744545c23c10d6b8f330d4d33404b15bf91fa422e93c0435aa8b52c4c8c967f",
+      "bytes": 6125
+    },
+    {
+      "path": "transport/TorCountries.kt",
+      "sha256": "b7591ca265940a7bfe928e1583e2fe3d439ce5dbfaa515c294f46d50c1801527",
+      "bytes": 2924
+    },
+    {
+      "path": "transport/TorSocksFront.kt",
+      "sha256": "71d1f5f42953364883fc95763d9a60b7df29e251fdd27e3d849435f4aef0c682",
+      "bytes": 26025
+    },
+    {
+      "path": "transport/TorSocksWire.kt",
+      "sha256": "bd00a8ad674475df6466a3d8d37639fbad4266387c02a1139bae0589a36cf1a5",
+      "bytes": 6484
+    },
+    {
+      "path": "transport/UplinkGovernor.kt",
+      "sha256": "c1a17d9f8ab24571dfd42813636e56534be89a36425b1b82fb05e7d72e8d0d88",
+      "bytes": 22172
+    },
+    {
+      "path": "ui/AboutPanel.kt",
+      "sha256": "11c73840c636247378936a9042bea7ff6b7191dfa1a2c7e1e6f9e2184f8ad8c5",
+      "bytes": 14764
+    },
+    {
+      "path": "ui/HomeScreen.kt",
+      "sha256": "62129700ea21c46e08213e8a6ad241304e79ab2f41fe3c0d8c56187267dcd89b",
+      "bytes": 16140
+    },
+    {
+      "path": "ui/LoginCodeDialog.kt",
+      "sha256": "78dcae369b10e50a4ec252a970a3ba9ca76444d174ba725ec0550ab9e0d186a9",
+      "bytes": 6274
+    },
+    {
+      "path": "ui/SharePanel.kt",
+      "sha256": "f533f4e0cc66b05e38bc6420e04c9a21c94055749b27b9a68262533fd9eb55c9",
+      "bytes": 37226
+    },
+    {
+      "path": "ui/ai/AiChatScreen.kt",
+      "sha256": "89a5a39b1ae7f0bc16650a6be47e5854fc10f14ddacef701304d1b57cfe3278b",
+      "bytes": 40250
+    },
+    {
+      "path": "ui/ai/AiCommon.kt",
+      "sha256": "35bc901eb3ad70592d4ec4a3f0073839ef024e0484d942be367e722cc07815ff",
+      "bytes": 28473
+    },
+    {
+      "path": "ui/ai/AiPages.kt",
+      "sha256": "0695444f38a06babbf96b35e72423399f98f434827d102c71917da85c70dbdf0",
+      "bytes": 26150
+    },
+    {
+      "path": "ui/ai/AiRichText.kt",
+      "sha256": "65917aa3fbf30fdb8f336e71f63f30985cfdc8b21eb61a1b66200888c1739dd7",
+      "bytes": 14635
+    },
+    {
+      "path": "ui/announcements/Announcements.kt",
+      "sha256": "36ede4c6b325409df3f5c4010a36f7a73143962168700eb0cfbc269e56a38d52",
+      "bytes": 7750
+    },
+    {
+      "path": "ui/announcements/AnnouncementsPage.kt",
+      "sha256": "e4567d53a868740f3c2447fd09a09a47ae37a16f52a6c138465807f0943d4d0e",
+      "bytes": 2187
+    },
+    {
+      "path": "ui/announcements/WhatsNewDialog.kt",
+      "sha256": "cef15ad7972390e656228fc670bd32e5bad843a522e4c3e0363f247c9467a614",
+      "bytes": 19281
+    },
+    {
+      "path": "ui/components/AetherMark.kt",
+      "sha256": "62153187df8a805f09714e828e307d336c1f7af657997e52cd1d34306f48c868",
+      "bytes": 17795
+    },
+    {
+      "path": "ui/components/AmbientBackground.kt",
+      "sha256": "d8dcbbc298781c7fae68582c5adbdb1b23d12be4d4db15f8055305c2774e2729",
+      "bytes": 1344
+    },
+    {
+      "path": "ui/components/AppPickerDialog.kt",
+      "sha256": "3c2822b0026bc027ed43de6b73dc3c27b8229587f7a9d7fe9fdb3c2c9007a79c",
+      "bytes": 8011
+    },
+    {
+      "path": "ui/components/ConnectButton.kt",
+      "sha256": "db91d6309c04258da8e3d2756abacb45bf4ff2c2b8f0be965b3014b06831ec8c",
+      "bytes": 10397
+    },
+    {
+      "path": "ui/components/ConnectionCard.kt",
+      "sha256": "d6cee23025c877a9b18a269086596f681025b4e3b57b04987db01b21e6921d4a",
+      "bytes": 44087
+    },
+    {
+      "path": "ui/components/DiagnosticsPanel.kt",
+      "sha256": "f729c92dc011a0eea50ce329d0657dbc890295eb7dc2de1d6dddeb64f8844a7d",
+      "bytes": 12371
+    },
+    {
+      "path": "ui/components/FitLineText.kt",
+      "sha256": "f3af37448758a6fe1eee59eef261928e36502de9e8c583df638e7cd7c7e27f67",
+      "bytes": 6408
+    },
+    {
+      "path": "ui/components/FitToHeight.kt",
+      "sha256": "947e02e367b4d41c3ef7e5581df5c06f4b29ea6aa1c14010ca1969f096b0465b",
+      "bytes": 12805
+    },
+    {
+      "path": "ui/components/GlowCycle.kt",
+      "sha256": "703e8e2b5a3cba699de76bf68faa3622dbeace7625a3547c57299ddcbdc74f6b",
+      "bytes": 9682
+    },
+    {
+      "path": "ui/components/LtrInput.kt",
+      "sha256": "993dd6738a1745f54cf7e84034a261fd680b2761db8e8ba9621cc2a250d56947",
+      "bytes": 9501
+    },
+    {
+      "path": "ui/components/PrivacyGuard.kt",
+      "sha256": "f6cdaed8c7f1c4f1e9fd9e7c9f81784d10e2b3b7f08e7c6d4b51d5bf44de4c09",
+      "bytes": 3814
+    },
+    {
+      "path": "ui/components/SegmentedSelector.kt",
+      "sha256": "516771da485f4113599305f977de7b65d04aafd99cbc0495538b34052a053577",
+      "bytes": 8468
+    },
+    {
+      "path": "ui/settings/ConfigDataTable.kt",
+      "sha256": "2f4630705d04dabbbe8448605f58622807a291b02d2801c98e7d30b778d78bd6",
+      "bytes": 10005
+    },
+    {
+      "path": "ui/settings/ConfigMenuUi.kt",
+      "sha256": "dbfeb6fd088ee2acff3f2143b2b45c5b564eaa9d794868e48e637cc13d6e4a51",
+      "bytes": 3504
+    },
+    {
+      "path": "ui/settings/ConfigTabStrip.kt",
+      "sha256": "b0158fbd7c53d15da59032967dfb83e0fbcdb82e2144da3764bd23dc0b8ec196",
+      "bytes": 2765
+    },
+    {
+      "path": "ui/settings/CustomConfigsPage.kt",
+      "sha256": "a1c15001d1060191ead41b21291b4a5e03780a1d45c26c3ebfa753f277bbd169",
+      "bytes": 40609
+    },
+    {
+      "path": "ui/settings/PortraitCaptureActivity.kt",
+      "sha256": "8298b00c9779c9b09a1994be25dad6f9822b2a3f092291459c0ff4cb19a1ff14",
+      "bytes": 565
+    },
+    {
+      "path": "ui/settings/SettingsScreen.kt",
+      "sha256": "1806fdb992e96d3ed451d8e118d0993d0ea1228eb3b2aa2bc770296017dbae81",
+      "bytes": 86497
+    },
+    {
+      "path": "ui/settings/SettingsUi.kt",
+      "sha256": "b41b77fdf51d2783ab1895a3e29ac8a52cbb2608cdac262ed859846380206726",
+      "bytes": 34264
+    },
+    {
+      "path": "ui/settings/ZeroTrustMembership.kt",
+      "sha256": "a3559b11d9b00d2b93a49d7b4287a70240596e9d89435150e4e212c29b8427cb",
+      "bytes": 30081
+    },
+    {
+      "path": "ui/theme/Color.kt",
+      "sha256": "eeea974c442eac5e7b437dc57827d024a4e5288ff1643bd5d150fc90bba36343",
+      "bytes": 3954
+    },
+    {
+      "path": "ui/theme/Theme.kt",
+      "sha256": "397fda1c620fc0f9c6ebb354bf5769f26dc498b321d550a78050406081a249ae",
+      "bytes": 6723
+    },
+    {
+      "path": "ui/theme/Type.kt",
+      "sha256": "c198f1b32f82cbfed6b24afcb9356bb951298ea2174f0398ad23f8494ee131b7",
+      "bytes": 4358
+    },
+    {
+      "path": "vpn/AetherTileService.kt",
+      "sha256": "54566a64e5e6259935fd24890310ab3bba1688b8bf01115437f8f1d641ee05c3",
+      "bytes": 5040
+    },
+    {
+      "path": "vpn/AetherVpnService.kt",
+      "sha256": "8396d80e0a047148e31e5f6be964ac93112d16fed9496321c87c40abec63f2aa",
+      "bytes": 172841
+    },
+    {
+      "path": "widget/AetherWidgetProvider.kt",
+      "sha256": "0653d367ca7bdd7b79a716e3189559c6afe216389aac8119a468c315917c1dee",
+      "bytes": 7505
+    },
+    {
+      "path": "widget/WidgetStateCache.kt",
+      "sha256": "2a2f4edf175e8f2f0a0ba1918813e9b5cdb4d99411ec05471bcefb44bef985d5",
+      "bytes": 4549
+    }
+  ]
+}

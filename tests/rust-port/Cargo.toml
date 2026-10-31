@@ -1,0 +1,17 @@
+[package]
+name = "aether-port-tests"
+version = "1.4.0"
+edition = "2021"
+publish = false
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+parking_lot = "0.12"
+native-tls = "0.2"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+pbkdf2 = "0.12"
+p256 = { version = "0.13", features = ["ecdsa"] }
+zeroize = "1"

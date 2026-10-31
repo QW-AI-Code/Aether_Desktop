@@ -200,6 +200,32 @@ fn require_uuid_like(id: &str) -> R<()> {
 
 // ------------------------------------------------------------------ parse
 
+/// Binary input must be dispatched before UTF-8 conversion (NPVS contains arbitrary bytes).
+pub fn parse_bytes(bytes: &[u8], source: ConfigSource, password: Option<&str>, now: i64) -> R<Vec<CustomConfig>> {
+    if bytes.len() > 2 * 1024 * 1024 { return err("file is larger than 2 MB"); }
+    // BOM یا فاصله‌ای که برخی ابزارها/انتقال‌ها پیش از سرآیند می‌گذارند.
+    let trimmed: &[u8] = {
+        let mut b = bytes;
+        if b.starts_with(&[0xEF, 0xBB, 0xBF]) { b = &b[3..]; }
+        while let [first, rest @ ..] = b { if first.is_ascii_whitespace() { b = rest } else { break } }
+        b
+    };
+    if npvt::is_binary(trimmed) {
+        return parse_decoded_npvt(npvt::decode_bytes(trimmed,password)?, "", source,password,now);
+    }
+    let text=std::str::from_utf8(bytes).map_err(|_|ImportError::Invalid("file is not UTF-8 text".into()))?;
+    // Base64-wrapped binary NPVS (some messengers/exports re-encode the file as text).
+    let compact: String = text.chars().filter(|c| !c.is_whitespace() && *c != '\u{feff}').collect();
+    if compact.len() >= 12 && compact.len() % 4 != 1 && compact.starts_with("TlBWU") {
+        if let Some(raw) = npvt::decode_base64(&compact) {
+            if npvt::is_binary(&raw) {
+                return parse_decoded_npvt(npvt::decode_bytes(&raw,password)?, "", source,password,now);
+            }
+        }
+    }
+    parse(text,source,password,now)
+}
+
 /// `input` را پارس می‌کند. دست‌کم یک کانفیگ برمی‌گرداند یا خطا. سطرهایی که
 /// کانفیگ نیستند رد می‌شوند به شرطی که دست‌کم یک سطر کانفیگ بوده باشد.
 pub fn parse(
@@ -222,6 +248,10 @@ pub fn parse(
             return err("npvt link does not contain an npvt config");
         };
         return parse_npvt(&decoded, source, npvt_password, now);
+    }
+    if super::npvo::looks_like(text) {
+        let decoded = super::npvo::decode(text)?;
+        return parse_decoded_npvt(decoded, text, source, npvt_password, now);
     }
     if npvt::looks_like(text) {
         return parse_npvt(text, source, npvt_password, now);
@@ -1148,6 +1178,11 @@ fn parse_npvt(
     now: i64,
 ) -> R<Vec<CustomConfig>> {
     let decoded = npvt::decode(text, npvt::tables()).map_err(ImportError::Invalid)?;
+    parse_decoded_npvt(decoded, text, source, password, now)
+}
+
+fn parse_decoded_npvt(decoded: npvt::Decoded, text: &str, source: ConfigSource,
+    password: Option<&str>, now: i64) -> R<Vec<CustomConfig>> {
     let servers = match serde_json::from_str::<Value>(&decoded.servers) {
         Ok(Value::Array(a)) => a,
         _ => return err("npvt file could not be decrypted"),

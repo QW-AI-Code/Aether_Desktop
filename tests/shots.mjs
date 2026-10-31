@@ -139,7 +139,7 @@ async function shot(name, { lang, w, h, tab, ai = AI }) {
   await page.waitForSelector('#view', { timeout: 10000 })
   if (tab && tab !== 'home') {
     await page.evaluate((tab) => {
-      const el = document.querySelector(`.rail__item[data-tab="${tab}"]`)
+      const el = document.querySelector(`.drawer__item[data-tab="${tab}"]`)
       if (el) el.click()
     }, tab)
   }
@@ -156,16 +156,16 @@ async function shot(name, { lang, w, h, tab, ai = AI }) {
   await page.close()
 }
 
-await shot('home-en-960x640', { lang: 'en', w: 960, h: 640, tab: 'home' })
-await shot('home-fa-960x640', { lang: 'fa', w: 960, h: 640, tab: 'home' })
-await shot('ai-en-1180x780', { lang: 'en', w: 1180, h: 780, tab: 'assistant' })
-await shot('ai-fa-1180x780', { lang: 'fa', w: 1180, h: 780, tab: 'assistant' })
-await shot('settings-fa-1180x780', { lang: 'fa', w: 1180, h: 780, tab: 'advanced' })
+await shot('home-en-360x720', { lang: 'en', w: 360, h: 720, tab: 'home' })
+await shot('home-fa-360x720', { lang: 'fa', w: 360, h: 720, tab: 'home' })
+await shot('ai-en-390x820', { lang: 'en', w: 390, h: 820, tab: 'assistant' })
+await shot('ai-fa-390x820', { lang: 'fa', w: 390, h: 820, tab: 'assistant' })
+await shot('settings-fa-390x820', { lang: 'fa', w: 390, h: 820, tab: 'advanced' })
 // چت: خالی (پرسش‌های آماده) و پُر (چهار حالتِ حباب)، در دو زبان.
-await shot('chat-empty-fa-1180x780', { lang: 'fa', w: 1180, h: 780, tab: 'chat' })
-await shot('chat-en-1180x780', { lang: 'en', w: 1180, h: 780, tab: 'chat', ai: AI_CHAT })
-await shot('chat-fa-1180x780', { lang: 'fa', w: 1180, h: 780, tab: 'chat', ai: AI_CHAT })
-await shot('chat-fa-960x640', { lang: 'fa', w: 960, h: 640, tab: 'chat', ai: AI_CHAT })
+await shot('chat-empty-fa-390x820', { lang: 'fa', w: 390, h: 820, tab: 'chat' })
+await shot('chat-en-390x820', { lang: 'en', w: 390, h: 820, tab: 'chat', ai: AI_CHAT })
+await shot('chat-fa-390x820', { lang: 'fa', w: 390, h: 820, tab: 'chat', ai: AI_CHAT })
+await shot('chat-fa-360x720', { lang: 'fa', w: 360, h: 720, tab: 'chat', ai: AI_CHAT })
 
 await browser.close()
 server.close()

@@ -60,6 +60,8 @@ pub enum Verdict {
     Invalid,
     /// این دستگاه اصلاً شبکه ندارد.
     NoNetwork,
+    UnexpectedStatus,
+    PartialResponse,
 }
 
 impl Verdict {
@@ -71,6 +73,8 @@ impl Verdict {
             Verdict::Blocked => "Filtered",
             Verdict::Invalid => "Invalid config",
             Verdict::NoNetwork => "No network",
+            Verdict::UnexpectedStatus => "Unexpected HTTP status",
+            Verdict::PartialResponse => "Partial response",
         }
     }
 }
@@ -163,7 +167,9 @@ pub fn batch_config(outbounds: &[(usize, Value)], ports: &[u16], creds: &[(Strin
 }
 
 /// همهٔ `targets` را می‌سنجد. ترتیبِ خروجی همان ترتیبِ ورودی است.
-pub fn measure(binary: &Path, data_dir: &Path, targets: &[Target]) -> Vec<Delay> {
+pub fn measure(binary: &Path, data_dir: &Path, targets: &[Target]) -> Vec<Delay> {measure_inner(binary,data_dir,targets,&super::cancel::Cancel::new(),true)}
+pub fn measure_cancellable(binary:&Path,data_dir:&Path,targets:&[Target],cancel:&std::sync::Arc<super::cancel::Cancel>)->Vec<Delay>{measure_inner(binary,data_dir,targets,cancel,false)}
+fn measure_inner(binary:&Path,data_dir:&Path,targets:&[Target],cancel:&std::sync::Arc<super::cancel::Cancel>,detailed:bool)->Vec<Delay> {
     let mut results: Vec<Option<Delay>> = vec![None; targets.len()];
     let mut valid: Vec<(usize, Value)> = Vec::new();
     for (i, t) in targets.iter().enumerate() {
@@ -173,7 +179,8 @@ pub fn measure(binary: &Path, data_dir: &Path, targets: &[Target]) -> Vec<Delay>
         }
     }
     for chunk in valid.chunks(BATCH) {
-        match run_batch(binary, data_dir, targets, chunk) {
+        if cancel.stopped(){break;}
+        match run_batch(binary, data_dir, targets, chunk,cancel,detailed) {
             Some(rows) => {
                 for (i, d) in rows {
                     results[i] = Some(d);
@@ -186,8 +193,9 @@ pub fn measure(binary: &Path, data_dir: &Path, targets: &[Target]) -> Vec<Delay>
             None => {
                 // یک کانفیگِ خراب کلِ دسته را کشت: تک‌تک.
                 for one in chunk {
+                    if cancel.stopped(){break;}
                     let i = one.0;
-                    let d = run_batch(binary, data_dir, targets, std::slice::from_ref(one))
+                    let d = run_batch(binary, data_dir, targets, std::slice::from_ref(one),cancel,detailed)
                         .and_then(|mut r| r.pop().map(|(_, d)| d))
                         .unwrap_or_else(|| Delay::new(&targets[i].id, -1, Verdict::Invalid));
                     results[i] = Some(d);
@@ -213,7 +221,7 @@ pub fn measure(binary: &Path, data_dir: &Path, targets: &[Target]) -> Vec<Delay>
 }
 
 /// `None` یعنی Xrayِ این دسته بالا نیامد.
-fn run_batch(binary: &Path, data_dir: &Path, targets: &[Target], chunk: &[(usize, Value)]) -> Option<Vec<(usize, Delay)>> {
+fn run_batch(binary: &Path, data_dir: &Path, targets: &[Target], chunk: &[(usize, Value)], cancel:&std::sync::Arc<super::cancel::Cancel>,detailed:bool) -> Option<Vec<(usize, Delay)>> {
     let mut ports: Vec<u16> = Vec::with_capacity(chunk.len());
     for _ in chunk {
         let p = xproc::pick_port(&ports);
@@ -228,7 +236,7 @@ fn run_batch(binary: &Path, data_dir: &Path, targets: &[Target], chunk: &[(usize
     let mut x = XrayProcess::start(binary, data_dir, &tag, ports[0], &config).ok()?;
     let started = Instant::now();
     loop {
-        if !x.is_alive() {
+        if cancel.stopped() || !x.is_alive() {
             return None;
         }
         if ports.iter().all(|p| port_open(*p)) {
@@ -245,42 +253,47 @@ fn run_batch(binary: &Path, data_dir: &Path, targets: &[Target], chunk: &[(usize
         .enumerate()
         .map(|(k, (i, _))| Lane { index: *i, port: ports[k], user: creds[k].0.clone(), pass: creds[k].1.clone() })
         .collect();
-    let (tx, rx) = mpsc::channel::<(usize, i64)>();
+    let (tx, rx) = mpsc::channel::<(usize, i64, Option<ProbeError>)>();
+    let mut workers=Vec::new();
     for lane in lanes {
+        let token=cancel.clone();
         let tx = tx.clone();
-        std::thread::Builder::new()
+        let worker=std::thread::Builder::new()
             .name("aether-realdelay".into())
             .spawn(move || {
-                let mut best: i64 = -1;
-                for _ in 0..ROUNDS {
-                    if let Some(ms) = probe_once(lane.port, &lane.user, &lane.pass) {
-                        if best < 0 || ms < best {
-                            best = ms;
-                        }
-                    }
-                }
-                let _ = tx.send((lane.index, best));
+                let (best, failure) = measure_lane(lane.port, &lane.user, &lane.pass, Some(&token));
+                let _ = tx.send((lane.index, best, failure));
             })
-            .ok()?;
+            ;
+        match worker{Ok(h)=>workers.push(h),Err(_)=>{x.stop();for h in workers{let _=h.join();}return None;}}
     }
     drop(tx);
     let mut out = Vec::new();
-    let deadline = Instant::now() + ROUND_TIMEOUT * (ROUNDS as u32 * PROBE_HOSTS.len() as u32) + Duration::from_secs(4);
+    let deadline = Instant::now() + ROUND_TIMEOUT * (ROUNDS as u32 + 1) + Duration::from_secs(4);
     while out.len() < chunk.len() {
-        let left = deadline.saturating_duration_since(Instant::now());
+        if cancel.stopped()||Instant::now()>=deadline{break;}
+        let left = deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(50));
         match rx.recv_timeout(left) {
-            Ok((i, ms)) => out.push((i, ms)),
+            Ok((i, ms, e)) => out.push((i, ms, e)),
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
             Err(_) => break,
         }
     }
     x.stop();
+    for h in workers{let _=h.join();}
     // اتصال‌ها بسته شدند؛ حالا تشخیصِ مستقیم برای آن‌هایی که پاسخ ندادند (موازی).
     let mut rows: Vec<(usize, Delay)> = Vec::new();
     let mut diag = Vec::new();
     for (i, _) in chunk {
-        let ms = out.iter().find(|(j, _)| j == i).map(|(_, ms)| *ms).unwrap_or(-1);
+        let result=out.iter().find(|(j,_,_)| j==i);
+        let ms=result.map(|(_,ms,_)|*ms).unwrap_or(-1);
+        let error=result.and_then(|(_,_,e)|*e);
         if ms >= 0 {
             rows.push((*i, Delay::new(&targets[*i].id, ms, Verdict::Ok)));
+        } else if let Some(e)=error {
+            let verdict=if matches!(e,ProbeError::UnexpectedStatus(_)){Verdict::UnexpectedStatus}else{Verdict::PartialResponse};
+            rows.push((*i,Delay::new(&targets[*i].id,-1,verdict)));
+        } else if !detailed || cancel.stopped(){rows.push((*i,Delay::new(&targets[*i].id,-1,Verdict::NoReply)));
         } else {
             let outbound = targets[*i].outbound.clone();
             let i = *i;
@@ -309,70 +322,186 @@ pub fn probe_once(port: u16, user: &str, pass: &str) -> Option<i64> {
     None
 }
 
-fn probe_host(port: u16, user: &str, pass: &str, host: &str) -> Option<i64> {
-    let deadline = Instant::now() + ROUND_TIMEOUT;
-    let mut s = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), Duration::from_secs(2)).ok()?;
-    let _ = s.set_nodelay(true);
-    let left = |d: Instant| d.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
-    s.set_read_timeout(Some(left(deadline))).ok()?;
-    s.set_write_timeout(Some(Duration::from_secs(2))).ok()?;
-    // greeting: فقط username/password.
-    s.write_all(&[5, 1, 2]).ok()?;
-    let mut b2 = [0u8; 2];
-    s.read_exact(&mut b2).ok()?;
-    if b2 != [5, 2] {
-        return None;
-    }
-    let mut auth = vec![1u8, user.len() as u8];
-    auth.extend_from_slice(user.as_bytes());
-    auth.push(pass.len() as u8);
-    auth.extend_from_slice(pass.as_bytes());
-    s.write_all(&auth).ok()?;
-    s.read_exact(&mut b2).ok()?;
-    if b2[1] != 0 {
-        return None;
-    }
-    let mut req = vec![5u8, 1, 0, 3, host.len() as u8];
-    req.extend_from_slice(host.as_bytes());
-    req.extend_from_slice(&80u16.to_be_bytes());
-    s.write_all(&req).ok()?;
-    let mut head = [0u8; 4];
-    s.read_exact(&mut head).ok()?;
-    if head[1] != 0 {
-        return None;
-    }
-    let skip = match head[3] {
-        1 => 4 + 2,
-        4 => 16 + 2,
-        3 => {
-            let mut l = [0u8; 1];
-            s.read_exact(&mut l).ok()?;
-            l[0] as usize + 2
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeError { Network, PartialResponse, UnexpectedStatus(u16) }
+
+/// Strict ASCII status-line parser: only HTTP/1.0 and HTTP/1.1, exactly three digits.
+pub fn parse_status_line(line: &str) -> Result<u16, ProbeError> {
+    let b=line.as_bytes();
+    if b.len()<12 || !(line.starts_with("HTTP/1.0 ") || line.starts_with("HTTP/1.1 "))
+        || !b[9..12].iter().all(u8::is_ascii_digit)
+        || (b.len()>12 && b[12]!=b' ')
+        || b.iter().any(|c|*c<32 || *c==127) {return Err(ProbeError::PartialResponse);}
+    let code=((b[9]-b'0') as u16)*100+((b[10]-b'0') as u16)*10+(b[11]-b'0') as u16;
+    if !(100..=599).contains(&code) {return Err(ProbeError::PartialResponse);}
+    Ok(code)
+}
+fn read_status(r: &mut impl Read) -> Result<u16,ProbeError> {
+    let mut buf=Vec::new();let mut b=[0u8;1];
+    loop {
+        if buf.len()>=2048 {return Err(ProbeError::PartialResponse);}
+        match r.read_exact(&mut b) {Ok(())=>{},Err(e)=>return Err(if e.kind()==ErrorKind::UnexpectedEof {ProbeError::PartialResponse}else{ProbeError::Network})}
+        buf.push(b[0]);
+        if b[0]==b'\n' {
+            if buf.len()<2 || buf[buf.len()-2]!=b'\r' {return Err(ProbeError::PartialResponse);}
+            return parse_status_line(std::str::from_utf8(&buf[..buf.len()-2]).map_err(|_|ProbeError::PartialResponse)?);
         }
-        _ => return None,
-    };
-    let mut rest = vec![0u8; skip];
-    s.read_exact(&mut rest).ok()?;
-    let t0 = Instant::now();
-    let get = format!(
-        "GET /generate_204 HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0\r\nAccept: */*\r\nConnection: close\r\n\r\n"
-    );
-    s.write_all(get.as_bytes()).ok()?;
-    s.set_read_timeout(Some(left(deadline))).ok()?;
-    let mut buf = [0u8; 16];
-    let mut got = 0;
-    while got < 12 {
-        let n = s.read(&mut buf[got..]).ok()?;
-        if n == 0 {
-            break;
+    }
+}
+fn probe_host(port: u16,user: &str,pass: &str,host: &str) -> Option<i64> {request_through(port,user,pass,host).ok()}
+
+pub fn request_through(port:u16,user:&str,pass:&str,host:&str)->Result<i64,ProbeError> {request_through_cancel(port,user,pass,host,None)}
+pub fn request_through_cancel(port:u16,user:&str,pass:&str,host:&str,cancel:Option<&std::sync::Arc<super::cancel::Cancel>>)->Result<i64,ProbeError> {
+    let deadline=Instant::now()+ROUND_TIMEOUT;
+    let net=|_|ProbeError::Network;
+    let mut s=TcpStream::connect_timeout(&SocketAddr::from(([127,0,0,1],port)),Duration::from_secs(2)).map_err(net)?;
+    let _tracked=cancel.map(|c|c.track(&s)).transpose().map_err(net)?;
+    let left=||deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+    s.set_read_timeout(Some(left())).map_err(net)?;s.set_write_timeout(Some(left())).map_err(net)?;
+    let _=s.set_nodelay(true);let auth=!user.is_empty();
+    s.write_all(&[5,1,if auth {2}else{0}]).map_err(net)?;
+    let mut b=[0;2];s.read_exact(&mut b).map_err(net)?;
+    if b!=[5,if auth {2}else{0}] {return Err(ProbeError::Network);}
+    if auth {
+        if user.len()>255 || pass.len()>255 {return Err(ProbeError::Network);}
+        let mut req=vec![1,user.len() as u8];req.extend(user.as_bytes());req.push(pass.len() as u8);req.extend(pass.as_bytes());
+        s.write_all(&req).map_err(net)?;s.read_exact(&mut b).map_err(net)?;
+        if b!=[1,0] {return Err(ProbeError::Network);}
+    }
+    let mut req=vec![5,1,0,3,host.len() as u8];req.extend(host.as_bytes());req.extend(443u16.to_be_bytes());
+    s.write_all(&req).map_err(net)?;let mut head=[0;4];s.read_exact(&mut head).map_err(net)?;
+    if head[0]!=5 || head[1]!=0 || head[2]!=0 {return Err(ProbeError::Network);}
+    let len=match head[3] {1=>6,4=>18,3=>{let mut l=[0];s.read_exact(&mut l).map_err(net)?;l[0] as usize+2},_=>return Err(ProbeError::Network)};
+    s.read_exact(&mut vec![0;len]).map_err(net)?;
+    let t0=Instant::now(); // Cold TLS + HTTP, after SOCKS CONNECT, same contract as mobile.
+    s.set_read_timeout(Some(left())).map_err(net)?;s.set_write_timeout(Some(left())).map_err(net)?;
+    let connector=native_tls::TlsConnector::new().map_err(|_|ProbeError::Network)?;
+    let mut tls=connector.connect(host,s).map_err(|_|ProbeError::Network)?;
+    tls.get_ref().set_read_timeout(Some(left())).map_err(net)?;
+    tls.get_ref().set_write_timeout(Some(left())).map_err(net)?;
+    tls.write_all(format!("GET /generate_204 HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes()).map_err(net)?;
+    let code=read_status(&mut tls)?;
+    if code!=204 {return Err(ProbeError::UnexpectedStatus(code));}
+    if Instant::now()>deadline {return Err(ProbeError::Network);}
+    Ok(t0.elapsed().as_millis().max(1) as i64)
+}
+
+
+/// Mobile `RealDelay.ProbeSession` + `QwDelayPolicy`: one SOCKS5 + certificate-validated TLS
+/// channel to `www.gstatic.com`, reused (keep-alive) for every request. A discarded warm-up
+/// request pays for the remote dial + TLS; the delay is the faster of `ROUNDS` warm requests.
+pub const TARGET_HOST: &str = "www.gstatic.com";
+type Tls = native_tls::TlsStream<TcpStream>;
+pub struct ProbeSession<'a> {
+    port: u16, user: &'a str, pass: &'a str, host: &'a str,
+    cancel: Option<&'a std::sync::Arc<super::cancel::Cancel>>,
+    tls: Option<Tls>, tracked: Option<super::cancel::Tracked>,
+}
+impl<'a> ProbeSession<'a> {
+    pub fn new(port: u16, user: &'a str, pass: &'a str, host: &'a str, cancel: Option<&'a std::sync::Arc<super::cancel::Cancel>>) -> Self {
+        Self { port, user, pass, host, cancel, tls: None, tracked: None }
+    }
+    pub fn close(&mut self) { self.tls = None; self.tracked = None; }
+    fn connect(&mut self, deadline: Instant) -> Result<Instant, ProbeError> {
+        let net = |_| ProbeError::Network;
+        let left = || deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+        let mut s = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], self.port)), Duration::from_secs(2)).map_err(net)?;
+        self.tracked = self.cancel.map(|c| c.track(&s)).transpose().map_err(net)?;
+        s.set_read_timeout(Some(left())).map_err(net)?; s.set_write_timeout(Some(left())).map_err(net)?;
+        let _ = s.set_nodelay(true);
+        let auth = !self.user.is_empty();
+        s.write_all(&[5, 1, if auth { 2 } else { 0 }]).map_err(net)?;
+        let mut b = [0u8; 2]; s.read_exact(&mut b).map_err(net)?;
+        if b != [5, if auth { 2 } else { 0 }] { return Err(ProbeError::Network); }
+        if auth {
+            if self.user.len() > 255 || self.pass.len() > 255 { return Err(ProbeError::Network); }
+            let mut req = vec![1, self.user.len() as u8]; req.extend(self.user.as_bytes()); req.push(self.pass.len() as u8); req.extend(self.pass.as_bytes());
+            s.write_all(&req).map_err(net)?; s.read_exact(&mut b).map_err(net)?;
+            if b != [1, 0] { return Err(ProbeError::Network); }
         }
-        got += n;
+        // Like mobile: exclude only loopback authentication; remote CONNECT + TLS are in the cold clock.
+        let started = Instant::now();
+        let mut req = vec![5, 1, 0, 3, self.host.len() as u8]; req.extend(self.host.as_bytes()); req.extend(443u16.to_be_bytes());
+        s.write_all(&req).map_err(net)?;
+        let mut head = [0u8; 4]; s.read_exact(&mut head).map_err(net)?;
+        if head[0] != 5 || head[1] != 0 || head[2] != 0 { return Err(ProbeError::Network); }
+        let len = match head[3] { 1 => 6, 4 => 18, 3 => { let mut l = [0u8]; s.read_exact(&mut l).map_err(net)?; l[0] as usize + 2 }, _ => return Err(ProbeError::Network) };
+        s.read_exact(&mut vec![0u8; len]).map_err(net)?;
+        s.set_read_timeout(Some(left())).map_err(net)?; s.set_write_timeout(Some(left())).map_err(net)?;
+        // Default connector validates chain + hostname.
+        let tls = native_tls::TlsConnector::new().map_err(|_| ProbeError::Network)?.connect(self.host, s).map_err(|_| ProbeError::Network)?;
+        self.tls = Some(tls);
+        Ok(started)
     }
-    if got >= 12 && buf.starts_with(b"HTTP/1.") && buf[9].is_ascii_digit() {
-        Some(t0.elapsed().as_millis().max(1) as i64)
-    } else {
-        None
+    /// One validated `GET /generate_204`. Cold: includes CONNECT + TLS. Warm: one round trip.
+    pub fn request(&mut self) -> Result<i64, ProbeError> {
+        let deadline = Instant::now() + ROUND_TIMEOUT;
+        let r = self.request_inner(deadline);
+        if r.is_err() { self.close(); }
+        r
     }
+    fn request_inner(&mut self, deadline: Instant) -> Result<i64, ProbeError> {
+        let net = |_| ProbeError::Network;
+        let mut started = Instant::now();
+        if self.tls.is_none() { started = self.connect(deadline)?; }
+        let left = || deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+        let host = self.host.to_string();
+        let tls = self.tls.as_mut().ok_or(ProbeError::Network)?;
+        tls.get_ref().set_read_timeout(Some(left())).map_err(net)?;
+        tls.get_ref().set_write_timeout(Some(left())).map_err(net)?;
+        tls.write_all(format!("GET /generate_204 HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0\r\nAccept: */*\r\nConnection: keep-alive\r\n\r\n").as_bytes()).map_err(net)?;
+        let code = read_status(tls)?;
+        if code != 204 { return Err(ProbeError::UnexpectedStatus(code)); }
+        // Consume the COMPLETE header block so the next round cannot read leftovers.
+        let (mut bytes, mut close) = (0usize, false);
+        loop {
+            let line = read_line(tls)?;
+            bytes += line.len() + 2;
+            if bytes > 16_384 { return Err(ProbeError::PartialResponse); }
+            if line.is_empty() { break; }
+            let Some((k, v)) = line.split_once(':') else { return Err(ProbeError::PartialResponse) };
+            if k.is_empty() || !k.bytes().all(|c| c.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&c)) { return Err(ProbeError::PartialResponse); }
+            let (k, v) = (k.to_ascii_lowercase(), v.trim());
+            if (k == "content-length" && v.parse::<u64>().ok() != Some(0)) || k == "transfer-encoding" { return Err(ProbeError::PartialResponse); }
+            if k == "connection" && v.eq_ignore_ascii_case("close") { close = true; }
+        }
+        if Instant::now() > deadline { return Err(ProbeError::Network); }
+        let ms = started.elapsed().as_millis().max(1) as i64;
+        if close { self.close(); }
+        Ok(ms)
+    }
+}
+fn read_line(r: &mut impl Read) -> Result<String, ProbeError> {
+    let mut buf = Vec::new(); let mut b = [0u8; 1];
+    loop {
+        if buf.len() >= 8192 { return Err(ProbeError::PartialResponse); }
+        match r.read_exact(&mut b) { Ok(()) => {}, Err(e) => return Err(if e.kind() == ErrorKind::UnexpectedEof { ProbeError::PartialResponse } else { ProbeError::Network }) }
+        if b[0] == b'\n' {
+            if buf.last() != Some(&b'\r') { return Err(ProbeError::PartialResponse); }
+            buf.pop();
+            if buf.iter().any(|c| *c < 0x20 && *c != b'\t') { return Err(ProbeError::PartialResponse); }
+            return String::from_utf8(buf).map_err(|_| ProbeError::PartialResponse);
+        }
+        buf.push(b[0]);
+    }
+}
+
+/// QwDelayPolicy: discard the warm-up, then the faster of `ROUNDS` keep-alive requests.
+/// A failed warm-up yields no latency at all (never present startup as latency).
+pub fn measure_lane(port: u16, user: &str, pass: &str, cancel: Option<&std::sync::Arc<super::cancel::Cancel>>) -> (i64, Option<ProbeError>) {
+    let mut session = ProbeSession::new(port, user, pass, TARGET_HOST, cancel);
+    if let Err(e) = session.request() {
+        return (-1, if e == ProbeError::Network { None } else { Some(e) });
+    }
+    let (mut best, mut failure) = (-1i64, None);
+    for _ in 0..ROUNDS {
+        if cancel.map_or(false, |c| c.stopped()) { break; }
+        match session.request() {
+            Ok(ms) => { if best < 0 || ms < best { best = ms; } }
+            Err(e) => { if e != ProbeError::Network { failure = Some(e); } }
+        }
+    }
+    (best, if best >= 0 { None } else { failure })
 }
 
 /// نشانی‌ای که یک DNSِ مسموم به‌جای سرورِ واقعی برمی‌گرداند.
@@ -558,3 +687,15 @@ mod tests {
         assert_eq!(out.len(), targets.len());
     }
 }
+
+#[cfg(test)] mod strict_http_tests {
+ use super::*;
+ #[test] fn whitelist(){for s in ["HTTP/1.X 204 OK","HTTP/2.0 204 OK","HTTP/1.1 20X OK","HTTP/1.1 204X","HTTP/1.1 099 OK","HTTP/1.1 600 bad","HTTP/1.1 204 OK\t"] {assert_eq!(parse_status_line(s),Err(ProbeError::PartialResponse),"{s}");}}
+ #[test] fn valid_status(){assert_eq!(parse_status_line("HTTP/1.1 204 No Content"),Ok(204));assert_eq!(parse_status_line("HTTP/1.0 403 Forbidden"),Ok(403));}
+ #[test] fn crlf_only(){assert_eq!(read_status(&mut &b"HTTP/1.1 204 OK\n"[..]),Err(ProbeError::PartialResponse));assert_eq!(read_status(&mut &b"HTTP/1.1 204 OK\r\n"[..]),Ok(204));assert_eq!(read_status(&mut &b"HTTP/1.1 20"[..]),Err(ProbeError::PartialResponse));}
+}
+
+/// Owned worker: no stale background Xray/measurement survives the owning session.
+pub struct ProbeTask{token:std::sync::Arc<super::cancel::Cancel>,slot:std::sync::Arc<parking_lot::Mutex<Option<Vec<Delay>>>>,join:Option<std::thread::JoinHandle<()>>}
+impl ProbeTask{pub fn spawn(binary:std::path::PathBuf,dir:std::path::PathBuf,targets:Vec<Target>)->Self{let token=super::cancel::Cancel::new();let slot=std::sync::Arc::new(parking_lot::Mutex::new(None));let t=token.clone();let s=slot.clone();let join=std::thread::spawn(move||{let rows=measure_cancellable(&binary,&dir,&targets,&t);*s.lock()=Some(rows);});Self{token,slot,join:Some(join)}}pub fn poll(&mut self)->Option<Vec<Delay>>{let rows=self.slot.lock().take();if rows.is_some(){if let Some(h)=self.join.take(){let _=h.join();}}else if self.join.as_ref().map(|h|h.is_finished()).unwrap_or(false){if let Some(h)=self.join.take(){let _=h.join();}return Some(vec![]);}rows}}
+impl Drop for ProbeTask{fn drop(&mut self){self.token.cancel();if let Some(h)=self.join.take(){let _=h.join();}}}

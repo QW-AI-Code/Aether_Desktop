@@ -1,6 +1,6 @@
 {
   "name": "aether-desktop",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Aether Desktop - the Windows edition of Aether Mobile",
   "type": "module",
@@ -10,18 +10,26 @@
     "build": "tauri build",
     "web:dev": "vite",
     "web:build": "vite build",
-    "test": "node --import ./tests/png-loader.mjs tests/ui-smoke.mjs && node --import ./tests/png-loader.mjs tests/settings-smoke.mjs && node --import ./tests/png-loader.mjs tests/assistant-smoke.mjs && node --import ./tests/png-loader.mjs tests/chat-smoke.mjs && node --import ./tests/png-loader.mjs tests/profile-sync.mjs && node tests/glow-direction.mjs && node --import ./tests/png-loader.mjs tests/css-classes.mjs && node --import ./tests/png-loader.mjs tests/protocol-options.mjs && node --import ./tests/png-loader.mjs tests/custom-ping.mjs && node --import ./tests/png-loader.mjs tests/file-drop.mjs && node tests/whatsnew.mjs",
+    "test": "node tests/js-syntax.mjs && node --import ./tests/png-loader.mjs tests/ui-smoke.mjs && node --import ./tests/png-loader.mjs tests/settings-smoke.mjs && node --import ./tests/png-loader.mjs tests/assistant-smoke.mjs && node --import ./tests/png-loader.mjs tests/chat-smoke.mjs && node --import ./tests/png-loader.mjs tests/profile-sync.mjs && node tests/glow-direction.mjs && node --import ./tests/png-loader.mjs tests/css-classes.mjs && node --import ./tests/png-loader.mjs tests/protocol-options.mjs && node --import ./tests/png-loader.mjs tests/custom-ping.mjs && node --import ./tests/png-loader.mjs tests/file-drop.mjs && node --import ./tests/png-loader.mjs tests/whatsnew.mjs && node --import ./tests/png-loader.mjs tests/design140b.mjs && node --import ./tests/png-loader.mjs tests/catalog140.mjs && node tests/i18n-scan-keys.mjs && node tests/closeout140.mjs && node tests/sound-assets140.mjs && node tests/npvs-i18n.mjs && node tests/qr140.mjs && node --import ./tests/png-loader.mjs tests/uiux-catalog140.mjs && node --import ./tests/png-loader.mjs tests/desktop-startup140.mjs && node --import ./tests/png-loader.mjs tests/desktop-routing140.mjs",
     "test:layout": "vite build && node tests/layout-desktop.mjs",
-    "preflight": "bash scripts/preflight-local.sh"
+    "preflight": "bash scripts/preflight-local.sh",
+    "test:parity": "vite build && node tests/visual-parity.mjs",
+    "test:uiux": "vite build && node tests/uiux140.mjs",
+    "test:startup": "vite build && node tests/startup-render140.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0",
     "jsdom": "^25.0.1",
-    "puppeteer-core": "^23.11.1",
-    "vite": "^5.4.10"
+    "puppeteer-core": "25.14.0",
+    "qrcode-generator": "1.4.4",
+    "vite": "7.3.7"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.1.0",
-    "@tauri-apps/plugin-shell": "^2.0.1"
+    "@tauri-apps/plugin-shell": "^2.0.1",
+    "jsqr": "1.4.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

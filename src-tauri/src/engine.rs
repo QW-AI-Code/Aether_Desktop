@@ -243,6 +243,9 @@ pub struct AetherProcess {
     /// `AETHER_UPSTREAM=socks5://…` و `AETHER_MASQUE_HTTP2=1`، منتها با توری که
     /// خودش بالا می‌آورد. این‌جا همان دو متغیر را می‌دهیم و پرچم را نه.
     upstream_socks: Option<u16>,
+    custom_tcp_upstream: bool,
+    probe_port: Option<u16>,
+    chain_trace: Option<String>,
     // <<< AETHER-APP-PATCH the-tor-in-front-is-the-real-tor
     /// 1.3.0 port-guard: the engine's whole process tree (aether.exe plus the
     /// psiphon-tunnel-core.exe it spawns). `TerminateProcess` on aether.exe
@@ -278,11 +281,19 @@ impl AetherProcess {
             child: None,
             uses_tor: false,
             upstream_socks: None,
+            custom_tcp_upstream:false,
+            probe_port:None,
+            chain_trace:None,
             tree: None,
             psiphon_only: false,
         }
     }
 
+    /// Race children share only immutable executable metadata, not staging or UI sinks.
+    pub fn set_chain_trace(&mut self,id:Option<String>){self.chain_trace=id;}
+    pub fn owns_probe_listener(&self,port:u16)->bool{self.child.as_ref().map(|c|crate::procguard::listener_pid(port)==Some(c.id())).unwrap_or(false)}
+    pub fn probe_bind_port(&self)->Option<u16>{self.probe_port}
+    pub fn fork_probe(&self,port:u16)->Self{Self{exe:self.exe.clone(),working_dir:self.working_dir.clone(),bundled_dir:self.bundled_dir.clone(),caps:self.caps,child:None,uses_tor:false,upstream_socks:None,custom_tcp_upstream:false,probe_port:Some(port),chain_trace:None,tree:None,psiphon_only:false}}
     /// The engine, not the desktop, launches this bundled client. Runtime staging
     /// can fall back to the installation directory; both paths are checked.
     pub fn psiphon_assets(&self) -> Result<(PathBuf, PathBuf)> {
@@ -397,6 +408,7 @@ impl AetherProcess {
     /// مستقل به همین رسیده بود («QUIC is filtered here, so HTTP/2 is the only
     /// carrier that can connect»)، ولی تکیه بر تشخیصِ شبکه برای چیزی که از
     /// ساختِ زنجیره قطعی است، یعنی گذاشتنِ یک شکستِ ممکن روی مسیرِ اصلی.
+    pub fn set_custom_tcp_upstream(&mut self,enabled:bool){self.custom_tcp_upstream=enabled;}
     fn upstream_env(&self) -> Vec<(String, String)> {
         match self.upstream_socks {
             None => Vec::new(),
@@ -499,7 +511,9 @@ impl AetherProcess {
         // Direct routes belong to the local bridge only. The engine is the shared
         // upstream for both localhost and LAN peers, so it must never route direct.
         engine_profile.route_direct.clear();
+        if self.probe_port.is_some(){engine_profile.bypass_iran=false;engine_profile.block_ads=false;engine_profile.lan_share=false;engine_profile.route_block.clear();}
         let mut args = engine_profile.to_args_with_caps(caps);
+        if let Some(port)=self.probe_port{args.extend(["--bind".into(),format!("127.0.0.1:{port}")]);}
         if self.psiphon_only_run(profile) {
             // Core's Psiphon-only path binds the primary SOCKS listener (1819).
             // Never ask it to bootstrap a second, internal arti process: the
@@ -595,6 +609,9 @@ impl AetherProcess {
         // پرچم خاموش‌اند (`chained_stage`) و این‌جا هیچ فایلی ساخته نمی‌شود؛
         // آن‌جا پل قواعد را اعمال می‌کند.
         let mut smart_env: Vec<(String, String)> = Vec::new();
+        if self.custom_tcp_upstream && profile.protocol==crate::profile::Protocol::Masque && profile.masque_http2 {
+            smart_env.push(("AETHER_CUSTOM_TCP_UPSTREAM".into(),"1".into()));
+        }
         if caps.routing {
             if let Some(path) = crate::smart_lists::engine_routes_file(&self.working_dir, profile) {
                 smart_env.push(("AETHER_ROUTES_FILE".into(), path.display().to_string()));
@@ -652,6 +669,9 @@ impl AetherProcess {
             ));
         }
         let mut cmd = Command::new(&self.exe);
+        cmd.env_remove("AETHER_CUSTOM_TCP_UPSTREAM");
+        cmd.env_remove("AETHER_CHAIN_TRACE");
+        if let Some(id)=&self.chain_trace{cmd.env("AETHER_CHAIN_TRACE",id);}
         cmd.args(&args)
             .envs(smart_env)
             .envs(tor_dirs.clone())
@@ -672,7 +692,7 @@ impl AetherProcess {
             // یا بودجهٔ fast_endpoint_only) حاملِ داخلِ تور را پس نزند.
             .envs(self.upstream_env())
             // <<< AETHER-APP-PATCH tor-reverse-latch
-            // Core 2.3.0 (upstream, unmodified) sizes its own endpoint scan from
+            // Core 2.4.0 (upstream, unmodified) sizes its own endpoint scan from
             // `--scan` and has no rung-budget variable; the ladder in
             // `smart_auto.rs` sizes every rung to fit that scan instead.
             .env("HOME", &run_dir)
@@ -697,7 +717,7 @@ impl AetherProcess {
         cmd.creation_flags(CREATE_NO_WINDOW);
 
         // >>> AETHER-APP-FIX tor-psiphon-waits-for-psiphon
-        PSIPHON_READY.store(false, Ordering::SeqCst);
+        if self.probe_port.is_none(){PSIPHON_READY.store(false, Ordering::SeqCst);}
         // <<< AETHER-APP-FIX tor-psiphon-waits-for-psiphon
         let mut child = cmd.spawn()?;
         // Before anything else: from here on the engine and every process it
@@ -706,7 +726,7 @@ impl AetherProcess {
 
         // >>> AETHER-APP-PATCH zt-login-code-prompt
         // موتور بدون کنسول اجرا می‌شود (CREATE_NO_WINDOW) و stdinش یک لولهٔ
-        // معتبر است (نه دستگیرهٔ کنسولی که Access is denied می‌داد). هستهٔ ۲.۳.۰
+        // معتبر است (نه دستگیرهٔ کنسولی که Access is denied می‌داد). هستهٔ ۲.۴.۰
         // از stdinِ غیرترمینال فقط یک چیز می‌خواند: کدِ ورودِ Zero Trust
         // (`[zerotrust] login-code-needed`). پس لوله باز می‌ماند و به
         // `login_code` سپرده می‌شود؛ دیگر «y\n»ی نوشته نمی‌شود که هسته آن را
@@ -715,7 +735,7 @@ impl AetherProcess {
             .stdin
             .take()
             .map(|s| Box::new(s) as Box<dyn std::io::Write + Send>);
-        let generation = crate::login_code::attach(stdin_sink);
+        let generation = if self.probe_port.is_none(){Some(crate::login_code::attach(stdin_sink))}else{None};
         // <<< AETHER-APP-PATCH zt-login-code-prompt
 
         DiagnosticsLog::i(
@@ -729,14 +749,14 @@ impl AetherProcess {
         // موتور تازه یعنی bootstrap تازه: درصدِ اجرای قبلی نباید این یکی را
         // «در حال پیشرفت» نشان دهد. حتی وقتی این نشست تور ندارد هم صفر
         // می‌شود، وگرنه درصدِ کهنه از یک نشست تورِ قبلی روی صفحه می‌ماند.
-        crate::tor_bootstrap::reset();
+        if self.probe_port.is_none(){crate::tor_bootstrap::reset();}
 
         // درنگ کردن stdout و stderr — دقیقاً مثل ترد «aether-log» در اندروید.
         if let Some(out) = child.stdout.take() {
-            spawn_drain(out, Some(generation));
+            if self.probe_port.is_some(){spawn_probe_drain(out);}else{spawn_drain(out, generation);}
         }
         if let Some(err) = child.stderr.take() {
-            spawn_drain(err, None);
+            if self.probe_port.is_some(){spawn_probe_drain(err);}else{spawn_drain(err, None);}
         }
 
         self.child = Some(child);
@@ -771,7 +791,7 @@ impl AetherProcess {
 
     pub fn is_alive(&mut self) -> bool {
         match self.child.as_mut() {
-            Some(c) => matches!(c.try_wait(), Ok(None)),
+            Some(c) => match c.try_wait(){Ok(None)=>true,Ok(Some(status))=>{DiagnosticsLog::w("ChainTrace",&format!("engine pid={} exited status={status}",c.id()));false},Err(e)=>{DiagnosticsLog::w("ChainTrace",&format!("engine wait failed: {e}"));false}},
             None => false,
         }
     }
@@ -1154,7 +1174,7 @@ mod gateway_cache_tests {
         assert!(!is_gateway_cache_file("aether-team-acme.toml"));
     }
 
-    /// The exact line core 2.3.0 prints in `run_only` (field log 2026-10-08).
+    /// The exact line core 2.4.0 prints in `run_only` (field log 2026-10-08).
     #[test]
     fn the_psiphon_ready_line_is_recognised() {
         super::PSIPHON_READY.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -1165,3 +1185,5 @@ mod gateway_cache_tests {
     }
 }
 // <<< AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
+
+fn spawn_probe_drain<R:std::io::Read+Send+'static>(reader:R){std::thread::spawn(move||{for line in BufReader::new(reader).lines().map_while(Result::ok){DiagnosticsLog::d("smart+-engine",&crate::custom::process::redact(&line));}});}

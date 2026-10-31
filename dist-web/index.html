@@ -4,36 +4,56 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Aether</title>
-  <script type="module" crossorigin src="/assets/index-BiinA-8m.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-BcPcQ7nr.css">
+  <script type="module" crossorigin src="/assets/index-Baa1yhvI.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DnkhRrh0.css">
 </head>
 <body>
-  <!-- نوار عنوان سفارشی — decorations:false در tauri.conf.json -->
-  <header class="titlebar">
-    <img class="titlebar__icon" src="/assets/icon-D0YoRbNS.png" alt="" width="16" height="16" />
-    <span class="titlebar__title">Aether</span>
-    <span class="titlebar__spacer"></span>
-    <!-- آیکونِ دکمه‌ها در زمان اجرا توسط main.js به‌صورت SVG تزریق می‌شود؛
-         گلیف فونت «Segoe MDL2 Assets» حذف شد چون به‌صورت مربع خراب رندر می‌شد. -->
-    <button class="twin twin--min" aria-label="Minimize"></button>
-    <button class="twin twin--max" aria-label="Maximize"></button>
-    <button class="twin twin--close" aria-label="Close"></button>
+  <!-- ۱.۴.۰-mobile: نوار ۲۸ پیکسلی ویندوز — فقط درگ، کمینه و بستن (decorations:false).
+       بیشینه‌سازی عمداً وجود ندارد؛ پنجره یک قاب موبایلی ۳۹۰×۸۲۰ است. -->
+  <header class="winbar" data-tauri-drag-region>
+    <span class="winbar__spacer" data-tauri-drag-region></span>
+    <button class="twin twin--min" type="button" aria-label="Minimize"></button>
+    <button class="twin twin--close" type="button" aria-label="Close"></button>
   </header>
 
-  <!-- در موبایل Drawer رویی بود؛ در دسکتاپ همان محتوا در یک ریل دائمی. -->
-  <div class="shell">
-    <nav class="rail" id="nav-rail" aria-label="Sections">
-      <button class="rail__item is-active" data-tab="home">Home</button>
-      <button class="rail__item" data-tab="advanced">Advanced</button>
-      <button class="rail__item" data-tab="assistant">Assistant</button>
-      <button class="rail__item" data-tab="chat">Chat</button>
-      <button class="rail__item" data-tab="diagnostics">Diagnostics</button>
-      <button class="rail__item" data-tab="share">Share over LAN</button>
-      <button class="rail__item" data-tab="about">About</button>
-    </nav>
+  <!-- هدر موبایل — پورت TopAppBar نسخهٔ اندروید -->
+  <header class="mobile-header" id="mobile-header">
+    <button class="mobile-header__btn mobile-header__menu" id="menu-btn" type="button" aria-label="Menu" aria-controls="drawer" aria-expanded="false"></button>
+    <button class="mobile-header__btn mobile-header__back" id="back-btn" type="button" aria-label="Back" hidden></button>
+    <div class="mobile-header__brand">
+      <span class="mobile-header__title" id="header-title">Aether</span>
+      <span class="mobile-header__tagline" id="header-tagline">Freedom, in one tap</span>
+    </div>
+    <span class="mobile-header__spacer"></span>
+    <button class="mobile-header__btn mobile-header__action" id="hdr-assistant" type="button" data-tab="assistant" aria-label="Assistant"></button>
+    <button class="mobile-header__btn mobile-header__action" id="hdr-tune" type="button" data-tab="tunnel" aria-label="Tunnel settings"></button>
+  </header>
 
-    <main class="main">
-      <div id="view"></div>
+  <!-- کشوی ناوبری رویی — همان Drawer موبایل -->
+  <div class="drawer__backdrop" id="drawer-backdrop" hidden></div>
+  <nav class="drawer" id="drawer" aria-label="Sections" aria-hidden="true">
+    <div class="drawer__head">
+      <div class="drawer__brand">
+        <span class="drawer__title">Aether</span>
+        <span class="drawer__tagline">Freedom, in one tap</span>
+      </div>
+    </div>
+    <div class="drawer__group" data-group="ai">
+      <button class="drawer__item" type="button" data-tab="assistant">Assistant</button>
+      <button class="drawer__item" type="button" data-tab="chat">Chat</button>
+    </div>
+    <div class="drawer__sep"></div>
+    <div class="drawer__group" data-group="app">
+      <button class="drawer__item" type="button" data-tab="advanced">Settings</button>
+      <button class="drawer__item" type="button" data-tab="diagnostics">Diagnostics</button>
+      <button class="drawer__item" type="button" data-tab="share">Share over LAN</button>
+      <button class="drawer__item" type="button" data-tab="about">About</button>
+    </div>
+  </nav>
+
+  <div class="shell">
+    <main class="main" id="main">
+      <div id="view"><div class="boot-skeleton" role="status" aria-busy="true">Aether · در حال آماده‌سازی…</div></div>
     </main>
   </div>
 
