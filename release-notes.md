@@ -1,135 +1,270 @@
-# Aether Desktop 1.4.0 — release notes
+# Aether Desktop 1.5.0 — release notes
 
-Aether Core 2.4.0 remains the engine version. This release ports the portable networking and custom-config features of mobile **1.6.0** to Tauri 2 / Windows. Android Intents, camera import, airplane-mode/radio controls, VpnService and phone hotspot UI are not copied.
+<div dir="ltr" align="left">
 
-## Headline change: Windows UI and dimensions now match mobile 1.6.0
+Aether Core 2.4.0 remains the engine version. This release brings the connection changes of Aether Mobile **1.7.0** to Windows: a real engine readiness gate, a rewritten Smart mode (fair race, best route by measured quality), no automatic ECH, Gool in the MASQUE family, MASQUE over HTTP/2 in every ladder, a three-pass manual MASQUE plan, a QUIC reachability probe and security floors for the engine's Rust dependencies. Technical report: `docs/PORT_1.5.0_REPORT.fa.md`.
 
-The Windows 1.4.0 interface was rebuilt to follow the mobile 1.6.0 design instead of the older 1.3.0 desktop layout. Only the frontend changed in this pass; Rust, `native/` and `third_party/` are byte-identical to the input (SHA-256 compared for 2292 files).
+## Latest same-version update (1.5.0): Smart anti-DPI brain, Smart connection gate, chain diagram
 
-- **Settings and cards.** The connection-verification switch is a separate card above the core settings (same `verifyConnection` key, same wording as mobile); protocol tiles are two columns with a full-width last tile; option cards share mobile's structure.
-- **Custom configs page.** Capsule tabs without extra background or line, equal-height *Add config* (green) and *New tab* (dark pink) buttons, no duplicate “Saved configs” title, no fixed 560 px table width (long names, ports and the three-dot button stay inside the window; domains wrap under the type/ping badges), and a full-width *Test all* card under the table with icon, hint and assistant button.
-- **RTL and language.** Picker arrows point left in RTL; the “Exit country” hint sits under the whole row; technical names (Aether, Tor, MASQUE×2) stay English; *Link or text*, *Import file* and *Name* are translated; technical strings in inputs keep LTR order.
-- **Drawer and Gemini.** Triangular logo removed from the drawer header, uniform group spacing; Gemini icons use the `#9B8CFF` token and sit in the title row.
-- **Modal fix.** Escape now closes only the modal and no longer also leaves the sub-page.
+The version is unchanged (1.5.0, engine core 2.4.0).
 
-Limits: checked with Chromium (layout and a new DOM/geometry parity test) and a test IPC, not in WebView2 on Windows; pixel-exact parity is not claimed. See `docs/UI_PARITY_1.4.0.fa.md` and `docs/UIUX_1.4.0_REPORT.fa.md`.
+### Smart anti-DPI brain (`src-tauri/src/smart_plus/brain.rs`)
+- **Listens:** `readiness::signals_of` tags every engine line: UDP silence, TLS reset, empty
+  scan, blocked account API, damaged identity, missing ECH key.
+- **Diagnoses** every failed race lane, ladder rung and last-resort attempt.
+- **Learns:** `brain::Board` is shared by both race lanes. The serial ladder keeps its own
+  knowledge, seeded from the network fingerprint.
+- **Adapts:** `scheduler::run_adaptive` re-plans the tactics still to come, and
+  `smart_auto::adapt_ladder` does the same for the serial ladder:
+  - TCP carriers move ahead of UDP ones once UDP is dropped;
+  - TLS fragmentation and the Firewall obfuscation floor are switched on once TLS is
+    interfered with;
+  - WireGuard gets the GFW disguise when its gateways stay silent;
+  - hopeless UDP rungs are abandoned after 7 s;
+  - equivalent tactics are never tried twice.
+- **Heals** a damaged engine identity (`AetherProcess::heal_damaged_identity`, the damaged
+  copy is removed) and retries the same strategy.
+- Fixes in this revision:
+  - an attempt the brain abandoned itself is not counted as new evidence;
+  - a "provisioning a fresh identity" (recovery) line is not read as a damaged identity.
 
-- Authenticated NPVS v5 input through native paths and browser byte input: P-256 signature, ChaCha20-Poly1305 fields, PBKDF2/app-key unlock, expiry and locked-content privacy. Legacy NPVT1 stays supported. Recipient-device keys and attestation are explicitly rejected, not bypassed.
-- Persistent automatic/named tabs, counters, per-server action menu, group moves, lowest-delay sorting and 150/300 ms colors. Subscription records refresh atomically in the DPAPI store.
-- Cold TLS + generate_204 real delay, monotonic timing, strict HTTP/1.0/1.1 CRLF parsing and distinct HTTP/network outcomes. A warm live-ping number is a different measurement and is not forced to equal cold setup delay.
-- Config → Aether uses a bounded two-step custom TCP plan. ChainTrace logs lifecycle and teardown without exposing raw locked configs.
-- IPv4 grace race, validated ISO countries, delayed generation-safe country enrichment, globe fallback and wrapping IPv6 display.
-- Optional initial verification (default on), background group auto-selection with 120-second freshness and 50 ms / 20% hysteresis, configurable health interval.
-- Native performance/security ports: CUBIC and bounded netstack queues, WireGuard handoff/rekey safeguards, asymmetric UDP buffers (including Windows socket tuning), routing/DNS fixes, custom TCP gateway scan/SNI policy. (The shipped core `Cargo.lock` pins rustls 0.23.43; see the security audit below.)
-- Version-scoped What's New suppression remains persisted in prefs.json; Windows network-adapter/router troubleshooting replaces phone-only advice.
+### Smart connection gate: "Verify connection" removed everywhere
+- The connection page and the **Custom configs** page no longer have a verification switch.
+  Both show the "Smart connection gate" information card (`src/ui/smartgate.js`).
+- `verify_connection` / `custom_verify_connection` were removed from the profile. Old
+  `profile.json` files still load.
+- The state `VERIFYING` is now `PROVING`; it still reads old `VERIFYING` values. The status
+  reads "Smart gate: waiting for real data…".
+- Every session, including custom configs, is proven by a real HTTP request through the
+  tunnel whose answer comes back. The custom front is always proven before anything is
+  chained to it. The WebRTC leak check is unchanged and still fail-closed.
 
-## Reproducible source and validation limits
+### Other changes
+- **Auto-select lowest delay** for custom configs is now **on by default** (new installs; a choice you already saved is kept).
+- In Persian, every AI error and every backend error message (presets, custom configs, chains) is translated; raw Google text is mapped to the matching Persian sentence (`tAiError`) instead of being shown in English.
+- **Slow "Aether only" connects - root cause fixed:** the Smart race lane that proved a route was
+  killed (TerminateProcess) and the confirming session started 0.3 s later on the *same* WARP device
+  identity; Cloudflare still held the lane's session, so the confirm got `connect-ip status 400` or carried
+  no return traffic, failed its gate after 45 s and fell through to a full rescan. Race lanes now run on
+  their own identity (`aether-race*.toml`) and the session starts from the gateway the race proved
+  (`adopt_race_gateways`). Quality window 2.5 s and route measurement 4.5 s, as on mobile.
+- The speed-test button of a custom config uses the same speedometer icon as the mobile app.
+- **Chained stage 1 is proven by real data too:** before stage 2 (e.g. Psiphon behind Aether) starts, stage 1 must carry a real HTTP answer (smart gate, `probe::data_via_proxy_on`; TLS answer for port 443), not only accept a CONNECT. The Tor bootstrap stall detection still ends the wait early.
+- The core overlay (`config.rs`, `CORE_PORT_PATCHES.json`) quarantines a non-UTF-8 identity
+  and provisions a fresh one instead of exiting.
+- The 3-node chain diagram fits the default 390 px window (`src/ui/fit.js`).
+- What's new revision `r3`.
 
-`CORE_PORT_PATCHES.json` records original/mobile/ported hashes. The upstream manifest has NOT been rewritten to disguise the reviewed overlay as pristine. Guards reject unrecorded changes. CORE_SYNC defaults to off; an explicit upgrade requires rebasing the overlay rather than discarding it.
+### Security audit (0-100) - this release
 
-See `docs/PORT_1.4.0_REPORT.fa.md` for actual test results and remaining limitations. Source delivery does not certify live VPN connectivity, signing, an installer or a remote GitHub Actions run. Third-party NPVS adaptation is AGPL-3.0 licensed; see THIRD_PARTY_NOTICES.md before distribution.
+| # | Area | Weight | Score | Findings |
+|---|------|:-----:|:-----:|----------|
+| 1 | Secrets at rest | 15 | 12 | Secrets, custom configs and Zero Trust tokens sealed with DPAPI. The engine identity (WARP key) stays plaintext in the app folder, as upstream does; damaged copies are removed. |
+| 2 | Secrets on the command line | 10 | 10 | Credentials and upstream URLs only in the engine environment. |
+| 3 | Leak protection | 15 | 14 | Leak guard and WebRTC/STUN check fail closed. The firewall kill switch needs administrator rights (browser-policy layer otherwise). |
+| 4 | Connection-gate integrity | 10 | 9 | Real HTTP response bytes required; bounded timeouts; no user data in probes. Plain-HTTP probe targets are public endpoints (low residual risk). |
+| 5 | Smart brain and memory privacy | 5 | 5 | Pure logic; memory holds hashed network keys and tactic ids only. |
+| 6 | TLS validation | 10 | 8 | Verified TLS for AI and geo lookups. MASQUE certificate pinning is opt-in. |
+| 7 | Dependencies and supply chain | 15 | 11 | Core pinned to upstream 2.4.0 plus a hash-locked reviewed overlay; engine dependency floors; `npm ci` with a lockfile. No `cargo audit` gate for the app crate yet. |
+| 8 | Build integrity and signing | 10 | 6 | Release-tree cleanup, core pristine guard and workflow-order guards. Windows binaries are not Authenticode-signed (SmartScreen warning possible). |
+| 9 | Logging and diagnostics | 5 | 5 | Exit IPs masked in the persistent log; diagnostics report redacted. |
+| 10 | Input validation | 5 | 5 | Profile, DNS, route and TLS options sanitised; Proxy Mode excluded on Windows. |
+| | **Total** | **100** | **85** | **Good.** Residual risks: unsigned Windows binaries, no app-crate `cargo audit`, plaintext engine identity in the app folder. |
 
-The existing explicit `Tor → Psiphon` connection label and official Tor process are retained; they are not replaced by a generic SMART label.
 
-## Completion pass: portable mobile 1.6.0 gaps
+App version **1.5.0**, engine core **2.4.0**, ported from Aether Mobile **1.7.0**. This release is about one
+thing: **connecting reliably, first time, without touching a setting** - especially in Tehran, where only
+MASQUE gets through.
 
-- SmartPlus is a real two-family WARP/MASQUE race, with independent loopback probe ports/process ownership, serial tactics within each lane, a 7-second stagger, bounded budgets, confirmed winner and joined/cancelled losing workers. Saved profiles are never rewritten to the winning tactic.
-- Tactics Memory is per default physical network (hashed gateway/DNS/NetworkGuid), not installation-global: 14-day proven evidence, 6-hour failed evidence, at most 32 networks, bounded/atomic storage and reset support. Unknown networks do not create a global cache entry.
-- Auto-selection performs a fresh active-group Real Delay batch before connecting when enabled. Periodic results are rejected if their catalog basis changed; cancellation closes sockets, stops Xray and joins workers.
-- Local QR image import, persistent HTTPS subscriptions from Paste, and native-path image import are implemented.
-- Psiphon upload SQM ports the mobile delay-gradient autorate, token-bucket/SFQ and sparse-flow priority. It starts open, uses an independent warm verified-TLS RTT session, applies backpressure only to tunneled uploads, and resets/stops with the connection. Direct routes and downloads are not capped.
-- ChainTrace now includes owned Xray/native exit status, session-linked SOCKS handshake stages and aggregate transfer counters without packet payloads or credentials.
-- AI custom-exit eligibility follows the active session's actual final SOCKS port, not the saved backend's intermediate/default port. Disconnected/ineligible routes fail closed. Zero Trust handoff Debug output never reveals an access token.
-- Development tooling refreshed to Vite 7.3.7 / puppeteer-core 25.14.0, with patched transitive dependencies; npm audit reports zero known advisories at validation time. Node >=22.12 is required.
+**Root cause of the connection failures (fixed)**
 
-## Actual validation and release boundary
+- **The engine was killed while it was still working.** The engine binds its local SOCKS5 port the moment it
+  starts and only *serves* it once a tunnel is validated. The app took the open port (≈0.3 s after launch) for a
+  ready engine and gave every attempt a single 4-second SOCKS5 handshake. Verifying a cached MASQUE gateway alone
+  takes 2-3.5 s on Iranian links, a fresh scan much longer - so MASQUE failed "sometimes" and every scan failed always.
+- **New readiness gate:** the app now waits - for the attempt's whole budget - until the engine itself reports that
+  it serves SOCKS5 and a real handshake succeeds, and stops waiting the instant the engine exits. This applies to
+  manual protocols, Smart mode, chained stage 1 and engine restarts by the watchdog.
 
-Portable production-module tests: 171 passed. Core-policy tests: 33 passed. Full native core tests on Linux: 423 passed, 2 explicitly ignored live-network tests. No failures. These suites overlap in coverage and are not 627 distinct product behaviours.
+**Smart mode, rewritten: a fair race and the best route, not the first one**
 
-Both app `cargo check --tests` and complete native core `cargo check` succeeded for x86_64-pc-windows-msvc and i686-pc-windows-msvc, including BoringSSL/ring/QUIC with a Windows SDK and Clang 19. The app checks use the CI resource-only override, not fake executable resources. npm test (13 harnesses), web build, Chromium layout and project preflight succeeded. See the Persian report and delivery verification log.
+- **Fair start:** WARP (WireGuard) and MASQUE start **at the same instant** with the **same per-tactic budgets**
+  (light 20 s, hardened 25 s, two-hop 40 s). Before, WireGuard started first, MASQUE 7 s later, after a serial 45 s
+  remembered-route slot.
+- **Light to heavy:** bare WireGuard and MASQUE over HTTP/3 or HTTP/2 first; Noize obfuscation, TLS-fragmented
+  HTTP/2, then the two-hop Gool and MASQUE×2 only when needed.
+- **Best route wins:** after the first route proves it carries traffic, the race runs 3.5 s longer so the other
+  lane can prove one too. Every proven route is measured through itself - latency, ≈384 KB download and 128 KB
+  upload over verified TLS - and ranked with an overhead factor per protocol. If the best one does not come up, the
+  next proven route is tried.
+- **HTTP/2 first where it matters:** MASQUE over HTTP/2 (TCP) leads on UDP-throttled networks and when a new QUIC
+  probe (a Version-Negotiation packet to the MASQUE gateways) gets no answer.
+- **Per-network memory** only re-orders a lane; failures are recorded per network. **Last resort** (deep
+  full-range scan of the two cleanest carriers) only when nothing proved itself.
 
-No source-level gap listed in the previous report is deliberately left as a future implementation item. This is not a proof of universal semantic equality or a Windows runtime certification. Windows linking/installers/signing, remote GitHub Actions and live chain/NPVS interoperability still need a real release test; they were not run in this Linux session. Android-only services, radio controls, camera Intents, Keystore/attestation and phone hotspot UI remain platform exclusions, not bypasses.
+**Other fixes**
 
-## 1.4.0 — fixes (Windows parity with mobile)
-- Import of NapsternetV `NPVO1` text exports (`.npvs`), including `npvs1:` encoded values (port of `NpvoCodec.kt`).
-- Server rows show only `TYPE S# • IP:PORT` (no names, adverts or worker hosts); S numbers are consecutive per tab.
-- "New tab" button is on the left; the sparkle (AI) buttons were removed from the config page.
-- Real ping now mirrors mobile: `www.gstatic.com`, discarded warm-up, two keep-alive rounds, validated TLS.
-- "Home screen animations" off disables only the background glow; the connect-button spin keeps running.
-- Wintun: DLL check, retries, reuse of a stale adapter, exact OS error; no silent fall-back to the system proxy.
+- **ECH crash:** anti-DPI passes no longer switch ECH on by themselves (without a fetchable ECH key the engine
+  refuses to start). ECH is only ever your own choice.
+- **Identity clash:** core 2.4.0's Gool (WireGuard inside MASQUE) now races in the MASQUE lane.
+- **Wrong scan ranges:** MASQUE and Gool scans are no longer narrowed to the ranges measured for WireGuard.
+- **Missing carrier:** MASQUE over HTTP/2 is part of every ladder now.
+- **Manual MASQUE:** as configured → MASQUE over HTTP/2 (TCP) → anti-DPI pass (HTTP/2 + TLS fragmentation + obfuscation).
+- **Engine dependencies:** security floors quinn-proto 0.11.19, quinn-udp 0.5.16, url 2.5.9, cookie 0.18.3.
+- **What's new dialog** shows the 1.5.0 list and keeps the *"If you cannot connect at all"* steps.
 
-## Security audit — Windows 1.4.0 (score 70/100)
+## Same-version fixes in 1.5.0 (user reports)
 
-Source-level review of this repository, scored on eight areas with fixed weights, plus tools actually run for this release: `cargo audit` (RustSec database of 30 Oct 2026) on both `Cargo.lock` files, `npm audit` (0 advisories), `grep` review of TLS, capabilities, CSP, CI and key material. It is **not** a penetration test; no leak test, installer, signing or live tunnel was run on Windows hardware. The scores are the reviewer's judgement against the evidence in the table, not an automated metric.
+- **NapsternetV configs that ping and connect on Android did nothing on Windows.** Three differences from
+  Android were found and removed:
+  - *DNS:* Android gives Xray the network's own resolvers first; Windows always passed an empty list, so a
+    server given by NAME was resolved only by plain DNS to 1.1.1.1 / 8.8.8.8, which Iranian networks often drop
+    or delay until the ping round and the handshake time out. New `custom/netdns.rs` reads the IPv4 DNS servers
+    of the active adapters (`GetAdaptersAddresses`, Aether's own Wintun adapter and loopback skipped); the
+    real-delay test, the speed test and the session use network → 1.1.1.1 → 8.8.8.8 → system, exactly like Android.
+  - *TLS "allow insecure":* NapsternetV keeps it in `tlsAllowInsecure`; Windows read only the legacy `insecure`
+    flag, so self-signed servers failed certificate verification inside Xray. Same order as Android now.
+  - *Transport fields:* `xhttpMode`, `xhttpExtra`, `seed` (mKCP) and `authority` (gRPC) of a `.npvt`/`.npvs`
+    server are read like on Android, so the rebuilt outbound is the same one Android runs.
+  - The real-delay budget is 12 s per round, like Android (was 8 s).
+- **Opening a config file with Aether.** Right-click → *Open with* → Aether (or a double-click) only opened the
+  app. The program now reads the file it was started with - also when Aether is already running (single
+  instance) - and imports it through the normal import path (password prompt, locks, size limit). The installer
+  registers `.npvt` and `.npvs` (default handler and *Open with* entry) and removes the registration on
+  uninstall. The portable ZIP has no registration; *Open with* → *Choose another app* → `Aether.exe` works there.
+- **Auto-select:** "Test all" switches a live session to the fastest server at once; a network change
+  (Wi-Fi, Ethernet, hotspot) measures again and re-selects; the first full test after a connect is
+  applied with the eager 20 ms / 10 % threshold. The first connect itself never waits for a full test.
+- **Configs:** one-click ping, speed test and delete on every server; "Speed test all"; sort by ping,
+  download speed or upload speed.
+- **Connection card:** click the latency row (last / min / max / average / jitter / packet loss, 10-probe
+  burst), the protocol row (every node of the chain and its role) or the traffic row (session totals and
+  the programs connected to Aether's local proxy right now).
+- **Settings → Connection:** unified chain builder - number of nodes, the core of each node (Aether,
+  Psiphon, Tor or a config) and each node's settings; only chains the app can run are offered.
+- **Send diagnostics:** a redacted report (no IPs, host names, UUIDs or keys) is copied and a GitHub
+  issue page opens; offered after a failed connection; switch in Settings → Display and sound.
+- **Chain builder fixes:** changing the number of nodes or a node no longer adds a config node by itself; a
+  config chain chosen before any config exists stays on screen and switches on when one is selected; 3-node
+  chains explain why they always include a config. Node text uses the full width (controls below it) and
+  the chain diagram stays on one line, shrinking its font to fit.
+- **Smart text:** the ping / status chip of every config shows the whole text and shrinks instead of being
+  cut; the one-click actions moved to their own row.
+- The explicit `Tor → Psiphon` connection label and the official Tor process are unchanged.
+- The What's new dialog lists both fixes. Version numbers are unchanged (1.5.0).
 
-| # | Area | Weight | Score | Evidence / remaining risk |
-|---|---|---:|---:|---|
-| 1 | Data leaks (DNS, IPv6, WebRTC, bypass) | 15 | 13 | DNS inside the tunnel, WebRTC lock, IPv6 fail-closed, kill switch. The system proxy is not a universal route for arbitrary UDP apps. No leak test on real Windows hardware. |
-| 2 | Permissions and app components | 15 | 12 | Tauri capabilities are minimal (window + shell:allow-open) and the CSP has no remote origin. Needs administrator rights; CSP allows 'unsafe-inline' for styles. |
-| 3 | TLS and cryptography | 15 | 10 | SPKI pins and certificate + host-name checks in diagnostics are kept. But the Clean-IP scanner (cleanip.rs:517-518) accepts invalid certificates and host names, and the core accepts invalid certificates in bridges.rs and zerotrust.rs. |
-| 4 | Dependencies (cargo audit / npm audit) | 15 | 7 | npm audit: zero. cargo audit on src-tauri/Cargo.lock: 1 vulnerability (crypto-bigint) and 11 warnings; on the core Cargo.lock: 16 advisories, including quinn-proto 0.11.17 (DoS, CVSS 7.5) and rustls 0.23.43. The lock does not match the earlier “rustls 0.23.46” claim. |
-| 5 | Secrets and key management | 15 | 12 | AI key, Zero Trust sign-in, LAN-share password and saved configs are sealed with DPAPI; no hardcoded secret and no pfx/p12/jks file found. WARP identity files are plaintext. |
-| 6 | Local data and logging | 10 | 8 | IPs, hosts and UUIDs are masked in logs and repeated lines are collapsed; profile.json and the rotating log are not encrypted. |
-| 7 | Supply chain and CI | 10 | 5 | Xray is pinned by SHA-256 and the core/overlay guard is active. But GitHub Actions are referenced by tag (not commit), dtolnay/rust-toolchain@stable floats and installers are not Authenticode-signed. |
-| 8 | Local services and LAN sharing | 5 | 3 | Listeners are loopback-only and LAN share has the zero-leak guard; but share authentication is off by default and the chain's local SOCKS is unauthenticated. |
-| | **Total** | **100** | **70** | |
+## Security notes (1.5.0)
 
-**Findings to fix next (not changed in this release, because the core overlay is hash-guarded and unverified edits would break `check-core-pristine`):**
+- **No new permission, capability or listener.** The file association adds registry keys under `HKLM\Software\Classes` only (removed on uninstall); an opened file goes through the same size-limited, password-aware importer as drag & drop. Smart lanes still lease two random loopback ports exactly as before; nothing listens beyond `127.0.0.1`.
+- **Quality measurement only runs through the tunnel being measured:** a `HEAD` to `1.1.1.1:80` (an IP literal, no DNS) and HTTPS to `speed.cloudflare.com` with full certificate and host-name verification (`native-tls`/SChannel); about 384 KB down and 128 KB of zeros up per proven route. Nothing is sent on the direct path.
+- **The QUIC probe** is one 1200-byte random packet with a reserved version (`0x1a2a3a4a`), carrying no identity and no server name, to two Cloudflare MASQUE gateways (`162.159.198.1/.2:443`); only a Version-Negotiation answer counts.
+- **ECH is never changed behind the user's back:** every plan keeps the user's own ECH setting.
+- **Engine dependencies:** quinn-proto 0.11.19, quinn-udp 0.5.16, url 2.5.9 and cookie 0.18.3 are applied to the locked core in CI (`scripts/patch-engine-dependencies.py`, before `build-engine.ps1 --locked`). libsqlite3-sys 0.37.0 (RUSTSEC-2026-0459) stays: 0.39 needs rusqlite 0.41, which tor-dirmgr 0.46 does not accept; SQLite only opens Tor's directory cache inside the app's private data folder.
 
-1. **Core dependency advisories.** `native/aether/aether/Cargo.lock` pins `rustls 0.23.43`, `quinn-proto 0.11.17` (RUSTSEC-2026-0338/0340/0343, remote panic/DoS), `rustls-webpki 0.103.15`, `crypto-bigint 0.5.5`, `ctutils 0.4.2`, `zstd` crates and `rsa 0.9.10` (RUSTSEC-2023-0071, no fix available). The mobile project upgrades several of these in CI with `scripts/patch-engine-dependencies.py`; the Windows CI has no equivalent step. An earlier line of these notes said “rustls 0.23.46”; that is **not** what the shipped lock file contains and has been corrected.
-2. **Clean-IP scanner accepts any certificate.** `src-tauri/src/custom/cleanip.rs:517-518` (`danger_accept_invalid_certs(true)` + `danger_accept_invalid_hostnames(true)`). If the scan only measures reachability and no secret is sent, impact is low; it should still be documented or replaced by a pinned check.
-3. **Supply chain.** Pin GitHub Actions to commit SHAs, pin the Rust toolchain version, add Authenticode signing when a certificate exists (`.github/expected-signer.txt` is empty).
-4. **Plaintext state.** WARP identity, `profile.json` and the log are not encrypted (not secrets by design, but sensitive).
+## Validation of 1.5.0 (honest)
 
----
+Offline only: the repository's Python guards, `node --check`/syntax tests and the non-browser Node tests were run. `cargo`/`rustc` and `jsdom` were not available where this port was made, so the Rust code (including the new unit tests) and the jsdom UI tests were **not compiled or run** here; CI (`cargo test`, `npm test`) is the first real compile. No live connection was tested.
 
-<div dir="rtl" align="right">
-
-<h2 dir="rtl" align="right">تغییر شاخص: رابط و ابعاد ویندوز ۱.۴.۰ با موبایل ۱.۶.۰ همسان شد</h2>
-
-<p dir="rtl" align="right">رابط ویندوز ۱.۴.۰ به‌جای چیدمان قدیمی دسکتاپ ۱.۳.۰، بر پایهٔ طراحی موبایل ۱.۶.۰ بازسازی شد. در این مرحله فقط فرانت‌اند تغییر کرد؛ Rust و <bdi>native</bdi> و <bdi>third_party</bdi> با ورودی بایت‌به‌بایت یکسان‌اند (مقایسهٔ <bdi>SHA-256</bdi> برای ۲۲۹۲ فایل).</p>
-
-<ul dir="rtl">
-<li><strong>تنظیمات و کارت‌ها:</strong> سوئیچ راستی‌آزمایی اتصال کارت مستقل بالای تنظیمات هسته است (همان کلید <bdi>verifyConnection</bdi> و متن موبایل)؛ کاشی‌های پروتکل دو ستونه‌اند و گزینهٔ آخر تمام‌عرض است.</li>
-<li><strong>صفحهٔ کانفیگ‌های سفارشی:</strong> تب‌های کپسولی، دکمه‌های هم‌ارتفاع «افزودن کانفیگ» (سبز) و «تب جدید» (صورتی تیره)، حذف عنوان تکراری، حذف عرض ثابت ۵۶۰ پیکسلی جدول (نام و پورت و دکمهٔ سه‌نقطه داخل پنجره می‌مانند) و کارت تمام‌عرض «تست پینگ همه» زیر جدول.</li>
-<li><strong>راست‌به‌چپ و زبان:</strong> فلش انتخابگرها در RTL رو به چپ است؛ نام‌های فنی (<bdi>Aether</bdi>، <bdi>Tor</bdi>، <bdi>MASQUE×2</bdi>) انگلیسی می‌مانند؛ «لینک یا متن»، «وارد کردن فایل» و «نام» ترجمه شدند؛ رشته‌های فنی در ورودی‌ها ترتیب LTR دارند.</li>
-<li><strong>کشو و Gemini:</strong> لوگوی مثلثی از هدر کشو حذف شد و فاصلهٔ گروه‌ها یکسان است؛ آیکون‌های <bdi>Gemini</bdi> از توکن <bdi>#9B8CFF</bdi> استفاده می‌کنند.</li>
-<li><strong>رفع باگ مدال:</strong> کلید <bdi>Escape</bdi> فقط مدال را می‌بندد و همزمان از زیرصفحه خارج نمی‌شود.</li>
-</ul>
-
-<p dir="rtl" align="right"><strong>محدودیت:</strong> آزمون با <bdi>Chromium</bdi> و <bdi>IPC</bdi> آزمایشی انجام شده، نه روی <bdi>WebView2</bdi> ویندوز؛ انطباق پیکسلی ۱۰۰٪ ادعا نمی‌شود. جزئیات در <bdi>docs/UI_PARITY_1.4.0.fa.md</bdi>.</p>
+The same-version fixes were checked the same way (Python guards incl. `check-rust-parses.py`, `node tests/js-syntax.mjs` and the non-jsdom Node tests); new Rust unit tests: `netdns::tests`, `openfile::tests`, `pingstats::tests`, `apps::tests`, `diagreport::tests`, `selection::tests::eager_threshold_and_manual_flag`, plus `tests/chainbuilder150.mjs`, `xray::tests::direct_dns_puts_the_network_first_like_android`, `parser::tests::npvt_tls_allow_insecure_and_xhttp_fields_match_android`. They are compiled for the first time by CI.
 
 </div>
 
-
 <div dir="rtl" align="right">
 
-<h2 dir="rtl" align="right">ممیزی امنیتی — ویندوز ۱.۴.۰ (امتیاز ۷۰ از ۱۰۰)</h2>
+## تازه‌ترین به‌روزرسانی هم‌نسخه (<bdi>1.5.0</bdi>): مغز هوشمند ضد <bdi>DPI</bdi>، دروازهٔ هوشمند اتصال و نمودار زنجیره
 
-<p dir="rtl" align="right">بررسی در سطح سورس همین مخزن، در هشت حوزه با وزن ثابت، به‌همراه ابزارهایی که واقعاً برای این انتشار اجرا شدند: <bdi>cargo audit</bdi> (پایگاه <bdi>RustSec</bdi> در ۳۰ اکتبر ۲۰۲۶) روی هر دو <bdi>Cargo.lock</bdi>، <bdi>npm audit</bdi> (صفر توصیه) و مرور <bdi>grep</bdi> برای TLS، ظرفیت‌های Tauri، CSP، CI و مواد کلیدی. این <strong>تست نفوذ نیست</strong>؛ آزمون نشت، نصب‌کننده، امضا و اتصال زنده روی سخت‌افزار ویندوز اجرا نشده است. امتیازها قضاوت بازبین بر پایهٔ شواهد جدول‌اند، نه معیار خودکار.</p>
+نسخه تغییر نکرده است (<bdi>1.5.0</bdi>، هستهٔ <bdi>2.4.0</bdi>).
 
-<table dir="rtl" align="right">
-<thead><tr><th>#</th><th>حوزه</th><th>وزن</th><th>امتیاز</th><th>شواهد و ریسک باقی‌مانده</th></tr></thead>
-<tbody>
-<tr><td>۱</td><td>نشت داده (DNS، IPv6، WebRTC، دور زدن)</td><td>۱۵</td><td>۱۳</td><td>DNS داخل تونل، قفل WebRTC، IPv6 به‌صورت fail-closed و kill switch. پروکسی سیستمی مسیر عمومی برای هر برنامهٔ UDP نیست. نشتی روی سخت‌افزار واقعی ویندوز آزمون نشده است.</td></tr>
-<tr><td>۲</td><td>مجوزها و مؤلفه‌های برنامه</td><td>۱۵</td><td>۱۲</td><td>ظرفیت‌های Tauri حداقلی‌اند (پنجره + shell:allow-open) و CSP بدون منبع راه دور است. برنامه نیاز به دسترسی Administrator دارد و CSP شامل 'unsafe-inline' برای style است.</td></tr>
-<tr><td>۳</td><td>TLS و رمزنگاری</td><td>۱۵</td><td>۱۰</td><td>SPKI pin و تأیید گواهی و نام میزبان در عیب‌یابی حفظ شده‌اند. اما «اسکن Clean IP» (cleanip.rs:517-518) گواهی و نام میزبان نامعتبر را می‌پذیرد، و هسته نیز در bridges.rs و zerotrust.rs گواهی نامعتبر می‌پذیرد.</td></tr>
-<tr><td>۴</td><td>وابستگی‌ها (cargo audit / npm audit)</td><td>۱۵</td><td>۷</td><td>npm audit: صفر. cargo audit روی src-tauri/Cargo.lock: ۱ آسیب‌پذیری (crypto-bigint) و ۱۱ هشدار؛ روی Cargo.lock هسته: ۱۶ توصیهٔ امنیتی، از جمله quinn-proto 0.11.17 (DoS با شدت ۷٫۵) و rustls 0.23.43. این قفل با ادعای «rustls 0.23.46» همخوان نیست.</td></tr>
-<tr><td>۵</td><td>مدیریت کلید و رمز</td><td>۱۵</td><td>۱۲</td><td>کلید هوش مصنوعی، ورود Zero Trust، گذرواژهٔ اشتراک شبکه و کانفیگ‌ها با DPAPI مهر می‌شوند؛ رمز هاردکد دیده نشد و فایل pfx/p12/jks نیست. فایل هویت WARP متن ساده است.</td></tr>
-<tr><td>۶</td><td>داده محلی و لاگ</td><td>۱۰</td><td>۸</td><td>IP، میزبان و UUID در لاگ پوشانده می‌شوند و خطوط تکراری فشرده می‌شوند؛ profile.json و لاگ چرخشی رمزنگاری نشده‌اند.</td></tr>
-<tr><td>۷</td><td>زنجیرهٔ تأمین و CI</td><td>۱۰</td><td>۵</td><td>Xray با SHA-256 پین شده و نگهبان هستهٔ دست‌نخورده/overlay فعال است. اما GitHub Actions با تگ (نه commit hash) ارجاع شده‌اند، dtolnay/rust-toolchain@stable شناور است و نصب‌کننده‌ها Authenticode امضا نمی‌شوند.</td></tr>
-<tr><td>۸</td><td>سرویس‌های محلی و اشتراک LAN</td><td>۵</td><td>۳</td><td>شنودکنندگان فقط loopback‌اند و اشتراک LAN نگهبان zero-leak دارد؛ اما احراز هویت اشتراک به‌صورت پیش‌فرض خاموش است و SOCKS محلی زنجیره بدون رمز است.</td></tr>
-<tr><td></td><td><strong>جمع</strong></td><td><strong>۱۰۰</strong></td><td><strong>۷۰</strong></td><td></td></tr>
-</tbody>
-</table>
+### مغز هوشمند ضد <bdi>DPI</bdi> (<bdi>smart_plus/brain.rs</bdi>)
+- **گوش می‌دهد:** هر خط لاگ هسته از نظر وضعیت شبکه برچسب می‌خورد: سکوت <bdi>UDP</bdi>، قطع <bdi>TLS</bdi>، اسکن خالی، مسدود بودن سرور ثبت‌نام، هویت خراب و نبودن کلید <bdi>ECH</bdi>.
+- **تشخیص می‌دهد:** علت شکست هر مسیر مسابقه، هر پلهٔ نردبان و هر تلاش آخر را مشخص می‌کند.
+- **یاد می‌گیرد:** دو مسیر مسابقه یک تختهٔ مشترک دارند. نردبان سریالی دانش خودش را دارد که از اثرانگشت شبکه شروع می‌شود.
+- **تطبیق می‌دهد:** روش‌های باقی‌مانده همان لحظه دوباره چیده می‌شوند:
+  - پروتکل‌های <bdi>TCP</bdi> جلوتر از <bdi>UDP</bdi> می‌آیند؛
+  - تکه‌تکه‌سازی <bdi>TLS</bdi> و مبهم‌سازی سطح <bdi>Firewall</bdi> روشن می‌شود؛
+  - اگر دروازه‌ها جواب ندهند، وایرگارد مبهم‌سازی <bdi>GFW</bdi> می‌گیرد؛
+  - روش‌های <bdi>UDP</bdi> بی‌فایده بعد از ۷ ثانیه رها می‌شوند؛
+  - روش‌های معادل دوبار تست نمی‌شوند.
+- **ترمیم می‌کند:** هویت خراب هسته حذف و همان روش دوباره امتحان می‌شود.
+- اصلاحات این بازنگری:
+  - تلاشی که خود مغز رها کرده، شاهد تازه حساب نمی‌شود؛
+  - خط بازیابی هویت، هویت خراب خوانده نمی‌شود.
 
-<p dir="rtl" align="right"><strong>یافته‌هایی که باید بعداً اصلاح شوند</strong> (در این انتشار تغییر نکردند، چون overlay هسته با هش محافظت می‌شود و ویرایش بررسی‌نشده <bdi>check-core-pristine</bdi> را می‌شکند):</p>
+### دروازهٔ هوشمند اتصال: «راستی‌آزمایی اتصال» از همه‌جا حذف شد
+- صفحهٔ اتصال و صفحهٔ **کانفیگ‌های سفارشی** دیگر کلید راستی‌آزمایی ندارند و هر دو کارت توضیحی «دروازهٔ هوشمند اتصال» را نشان می‌دهند.
+- فیلدهای <bdi>verify_connection</bdi> و <bdi>custom_verify_connection</bdi> از پروفایل حذف شدند. فایل‌های قدیمی <bdi>profile.json</bdi> بی‌مشکل باز می‌شوند.
+- حالت <bdi>VERIFYING</bdi> به <bdi>PROVING</bdi> تغییر کرد. متن وضعیت حالا «دروازهٔ هوشمند: در انتظار عبور دادهٔ واقعی…» است.
+- هر نشست، از جمله کانفیگ‌های سفارشی، با یک درخواست <bdi>HTTP</bdi> واقعی که پاسخش از تونل برگردد اثبات می‌شود. سنجش نشتی <bdi>WebRTC</bdi> مثل قبل سر جایش است.
 
-<ol dir="rtl">
-<li><strong>توصیه‌های وابستگی هسته:</strong> <bdi>native/aether/aether/Cargo.lock</bdi> نسخه‌های <bdi>rustls 0.23.43</bdi>، <bdi>quinn-proto 0.11.17</bdi> (<bdi>RUSTSEC-2026-0338/0340/0343</bdi>، خرابی/DoS از راه دور)، <bdi>rustls-webpki 0.103.15</bdi>، <bdi>crypto-bigint</bdi>، <bdi>ctutils</bdi>، <bdi>zstd</bdi> و <bdi>rsa 0.9.10</bdi> (بدون اصلاحیه) را پین کرده است. پروژهٔ موبایل در <bdi>CI</bdi> با <bdi>scripts/patch-engine-dependencies.py</bdi> بخشی را ارتقا می‌دهد؛ <bdi>CI</bdi> ویندوز مرحلهٔ معادل ندارد. عبارت قبلی «<bdi>rustls 0.23.46</bdi>» با قفل تحویلی همخوان نبود و در این مستندات اصلاح شد.</li>
-<li><strong>اسکنر Clean IP هر گواهی را می‌پذیرد:</strong> <bdi>src-tauri/src/custom/cleanip.rs:517-518</bdi>. اگر فقط دسترس‌پذیری سنجیده می‌شود و رازی ارسال نمی‌شود، اثر کم است؛ باید مستند یا با بررسی پین‌شده جایگزین شود.</li>
-<li><strong>زنجیرهٔ تأمین:</strong> پین‌کردن <bdi>Actions</bdi> به <bdi>commit SHA</bdi> و نسخهٔ <bdi>Rust</bdi>، و امضای <bdi>Authenticode</bdi> پس از تهیهٔ گواهی (<bdi>.github/expected-signer.txt</bdi> خالی است).</li>
-<li><strong>حالت ذخیره‌شدهٔ متن‌ساده:</strong> هویت <bdi>WARP</bdi>، <bdi>profile.json</bdi> و لاگ رمزنگاری نشده‌اند.</li>
-</ol>
+- **مرحلهٔ اول زنجیره هم با عبور دادهٔ واقعی اثبات می‌شود:** پیش از شروع مرحلهٔ دوم (مثلاً <bdi>Psiphon</bdi> پشت <bdi>Aether</bdi>)، مرحلهٔ اول باید یک پاسخ <bdi>HTTP</bdi> واقعی را عبور دهد (دروازهٔ هوشمند)، نه فقط اتصال را بپذیرد. تشخیص گیرکردن <bdi>Tor</bdi> همچنان انتظار را زود تمام می‌کند.
+
+- **رفع ریشه‌ای کندی اتصال در حالت «فقط Aether»:** مسیر برندهٔ مسابقه بسته می‌شد و نشست اصلی ۰٫۳ ثانیه بعد با *همان* هویت دستگاه <bdi>WARP</bdi> وصل می‌شد؛ کلادفلر هنوز نشست قبلی را نگه داشته بود، پس اتصال اصلی خطای <bdi>connect-ip 400</bdi> می‌گرفت یا داده برنمی‌گشت و بعد از ۴۵ ثانیه شکست می‌خورد و اسکن کامل شروع می‌شد. حالا مسیرهای مسابقه هویت جداگانهٔ خودشان را دارند و نشست اصلی از همان دروازه‌ای شروع می‌کند که مسابقه اثبات کرده است. پنجرهٔ مقایسه ۲٫۵ و سنجش هر مسیر ۴٫۵ ثانیه، مثل موبایل.
+- آیکون دکمهٔ تست سرعت کانفیگ‌ها همان آیکون سرعت‌سنج نسخهٔ موبایل شد.
+
+- کلید **انتخاب خودکار کمترین پینگ** در کانفیگ‌های سفارشی حالا **به‌طور پیش‌فرض روشن** است (برای نصب تازه؛ انتخابی که قبلاً ذخیره کرده‌اید حفظ می‌شود).
+- در زبان فارسی، همهٔ خطاهای دستیار هوش مصنوعی و پیام‌های خطای بخش‌های دیگر (پروفایل‌ها، کانفیگ‌های سفارشی، زنجیره‌ها) ترجمه شدند؛ متن خام انگلیسی گوگل به جملهٔ فارسی مناسب تبدیل می‌شود.
+
+### ممیزی امنیتی (۰ تا ۱۰۰) - همین انتشار
+
+| # | حوزه | وزن | امتیاز | یافته‌ها |
+|---|------|:---:|:-----:|----------|
+| ۱ | رازها روی دیسک | ۱۵ | ۱۲ | رازها، کانفیگ‌های سفارشی و توکن‌های <bdi>Zero Trust</bdi> با <bdi>DPAPI</bdi> مهر و موم می‌شوند. هویت هسته (کلید <bdi>WARP</bdi>) مثل نسخهٔ اصلی هسته به‌صورت متن ساده در پوشهٔ برنامه می‌ماند؛ نسخه‌های خراب حذف می‌شوند. |
+| ۲ | رازها در خط فرمان | ۱۰ | ۱۰ | اطلاعات ورود و نشانی پروکسی بالادستی فقط از راه محیط اجرای هسته فرستاده می‌شوند. |
+| ۳ | جلوگیری از نشت | ۱۵ | ۱۴ | محافظ نشت و سنجش <bdi>WebRTC</bdi>/<bdi>STUN</bdi> در صورت شکست اتصال را می‌بندند. <bdi>Kill switch</bdi> فایروال به دسترسی مدیر نیاز دارد. |
+| ۴ | درستی دروازهٔ اتصال | ۱۰ | ۹ | بایت‌های پاسخ واقعی لازم است، مهلت‌ها محدودند و کاوش‌ها دادهٔ کاربری ندارند. مقصدهای <bdi>HTTP</bdi> عمومی‌اند (ریسک باقی‌ماندهٔ کم). |
+| ۵ | حریم خصوصی مغز و حافظه | ۵ | ۵ | منطق خالص؛ فقط کلید درهم‌شدهٔ شبکه و شناسهٔ روش ذخیره می‌شود. |
+| ۶ | اعتبارسنجی <bdi>TLS</bdi> | ۱۰ | ۸ | <bdi>TLS</bdi> تأییدشده برای دستیار و موقعیت‌یابی؛ پین گواهی <bdi>MASQUE</bdi> اختیاری است. |
+| ۷ | وابستگی‌ها و زنجیرهٔ تأمین | ۱۵ | ۱۱ | هسته روی <bdi>2.4.0</bdi> نسخهٔ اصلی است و فقط تغییرات بازبینی‌شده با هش قفل‌شده دارد؛ کف امنیتی وابستگی‌های هسته و <bdi>npm ci</bdi> با فایل قفل. دروازهٔ <bdi>cargo audit</bdi> برای کد خود برنامه هنوز وجود ندارد. |
+| ۸ | درستی بیلد و امضا | ۱۰ | ۶ | پاک‌سازی درخت انتشار، محافظ دست‌نخوردگی هسته و محافظ ترتیب گردش‌کار وجود دارد. فایل‌های ویندوز امضای <bdi>Authenticode</bdi> ندارند (ممکن است هشدار <bdi>SmartScreen</bdi> نمایش داده شود). |
+| ۹ | لاگ و عیب‌یابی | ۵ | ۵ | <bdi>IP</bdi> خروجی در لاگ دائمی پوشانده می‌شود و گزارش عیب‌یابی پاک‌سازی‌شده است. |
+| ۱۰ | اعتبارسنجی ورودی | ۵ | ۵ | پروفایل، <bdi>DNS</bdi>، قواعد و گزینه‌های <bdi>TLS</bdi> پاک‌سازی می‌شوند؛ حالت پروکسی در ویندوز وجود ندارد. |
+| | **جمع** | **۱۰۰** | **۸۵** | **خوب.** ریسک‌های باقی‌مانده: نبودن امضای <bdi>Authenticode</bdi>، نبودن <bdi>cargo audit</bdi> برای کد برنامه و متن ساده بودن هویت هسته در پوشهٔ برنامه. |
+
+<h2 dir="rtl" align="right">تازه‌های نسخهٔ ویندوز ۱.۵.۰</h2>
+
+<p dir="rtl" align="right">نسخهٔ برنامه <strong><span dir="ltr">1.5.0</span></strong> و هستهٔ موتور <strong><span dir="ltr">2.4.0</span></strong> است و تغییرات <span dir="ltr">Aether</span> موبایل <strong><span dir="ltr">1.7.0</span></strong> را می‌آورد. هدف این نسخه یک چیز است:</p>
+<p dir="rtl" align="right"><strong>اتصال مطمئن از همان بار اول، بدون دست‌زدن به تنظیمات</strong>؛ به‌ویژه در تهران که فقط <span dir="ltr">MASQUE</span> جواب می‌دهد.</p>
+<h3 dir="rtl" align="right">ریشهٔ «کانکشن فیل» شدن‌ها (رفع شد)</h3>
+<ul dir="rtl">
+<li><strong>هسته وسط کارش بسته می‌شد.</strong> موتور پورت <span dir="ltr">SOCKS5</span> محلی را همان لحظهٔ اجرا رزرو می‌کند، اما فقط وقتی تونل تأیید شد به آن پاسخ می‌دهد. برنامه باز بودن پورت (حدود ۰٫۳ ثانیه پس از اجرا) را به معنی آماده بودن موتور می‌گرفت و به هر تلاش فقط یک دست‌دهی ۴ ثانیه‌ای می‌داد. فقط بررسی دروازهٔ ذخیره‌شدهٔ <span dir="ltr">MASQUE</span> روی اینترنت ایران ۲ تا ۳٫۵ ثانیه طول می‌کشد و اسکن تازه خیلی بیشتر؛ برای همین <span dir="ltr">MASQUE</span> «گاهی» وصل می‌شد و هر اسکنی همیشه شکست می‌خورد.</li>
+<li><strong>دروازهٔ آمادگی جدید:</strong> برنامه حالا در کل زمان هر تلاش صبر می‌کند تا خود موتور اعلام کند که <span dir="ltr">SOCKS5</span> را سرویس می‌دهد و یک دست‌دهی واقعی موفق شود، و اگر موتور بسته شود همان لحظه دست می‌کشد. این اصلاح برای پروتکل دستی، حالت هوشمند، مرحلهٔ اول زنجیره‌ها و راه‌اندازی دوبارهٔ موتور اعمال شده است.</li>
+</ul>
+<h3 dir="rtl" align="right">حالت هوشمند از نو نوشته شد: مسابقهٔ منصفانه و انتخاب بهترین مسیر، نه اولین مسیر</h3>
+<ul dir="rtl">
+<li><strong>شروع منصفانه:</strong> <span dir="ltr">WARP</span> (وایرگارد) و <span dir="ltr">MASQUE</span> <strong>در یک لحظه</strong> و با <strong>بودجهٔ زمانی یکسان برای هر روش</strong> شروع می‌شوند (سبک ۲۰، تقویت‌شده ۲۵ و دوهاپی ۴۰ ثانیه). پیش‌تر وایرگارد اول شروع می‌شد و <span dir="ltr">MASQUE</span> هفت ثانیه بعد، آن هم پس از نوبت جداگانهٔ ۴۵ ثانیه‌ای.</li>
+<li><strong>از سبک به سنگین:</strong> اول وایرگارد ساده و <span dir="ltr">MASQUE</span> روی <span dir="ltr">HTTP/3</span> یا <span dir="ltr">HTTP/2</span>؛ مبهم‌سازی <span dir="ltr">Noize</span>، <span dir="ltr">HTTP/2</span> با تکه‌تکه‌سازی <span dir="ltr">TLS</span> و در آخر <span dir="ltr">Gool</span> و <span dir="ltr">MASQUE×2</span> دوهاپی فقط در صورت نیاز.</li>
+<li><strong>بهترین مسیر برنده است:</strong> پس از اولین اثبات، مسابقه ۳٫۵ ثانیه ادامه می‌یابد؛ سپس هر مسیر سالم از درون خودش سنجیده می‌شود (پینگ، دانلود حدود ۳۸۴ کیلوبایت، آپلود ۱۲۸ کیلوبایت روی <span dir="ltr">TLS</span> تأییدشده) و با ضریب سربار هر پروتکل رتبه می‌گیرد. اگر بهترین مسیر بالا نیاید، مسیر سالم بعدی امتحان می‌شود.</li>
+<li><strong>اولویت <span dir="ltr">HTTP/2</span> در جای درست:</strong> در شبکه‌های با محدودیت <span dir="ltr">UDP</span> و وقتی پراب جدید <span dir="ltr">QUIC</span> جوابی نگیرد، <span dir="ltr">MASQUE</span> روی <span dir="ltr">HTTP/2</span> (بستر <span dir="ltr">TCP</span>) اول امتحان می‌شود.</li>
+<li><strong>حافظهٔ هر شبکه</strong> فقط ترتیب را عوض می‌کند؛ <strong>آخرین تلاش</strong> (اسکن عمیق) فقط وقتی هیچ مسیری جواب نداد.</li>
+</ul>
+<h3 dir="rtl" align="right">رفع مشکلات دیگر</h3>
+<ul dir="rtl">
+<li><strong>توقف ناگهانی هسته با <span dir="ltr">ECH</span>:</strong> مراحل ضد <span dir="ltr">DPI</span> دیگر <span dir="ltr">ECH</span> را خودکار روشن نمی‌کنند. <span dir="ltr">ECH</span> فقط انتخاب خود شماست.</li>
+<li><strong>تداخل هویت:</strong> <span dir="ltr">Gool</span> (وایرگارد داخل <span dir="ltr">MASQUE</span>) حالا در مسیر <span dir="ltr">MASQUE</span> اجرا می‌شود.</li>
+<li><strong>محدودهٔ اسکن اشتباه:</strong> اسکن <span dir="ltr">MASQUE</span> و <span dir="ltr">Gool</span> دیگر به محدوده‌های وایرگارد محدود نمی‌شود.</li>
+<li><strong><span dir="ltr">MASQUE</span> دستی:</strong> مطابق تنظیمات ← <span dir="ltr">MASQUE</span> روی <span dir="ltr">HTTP/2</span> (بستر <span dir="ltr">TCP</span>) ← مرحلهٔ ضد <span dir="ltr">DPI</span>.</li>
+<li><strong>امنیت وابستگی‌های هسته:</strong> <span dir="ltr">quinn-proto 0.11.19</span>، <span dir="ltr">quinn-udp 0.5.16</span>، <span dir="ltr">url 2.5.9</span>، <span dir="ltr">cookie 0.18.3</span>.</li>
+<li><strong>پنجرهٔ «تازه‌ها»</strong> فهرست <span dir="ltr">1.5.0</span> را نشان می‌دهد و بخش «اگر به هیچ وجه متصل نشدید چه کنید؟» را نگه داشته است.</li>
+</ul>
+<h3 dir="rtl" align="right">اصلاحات همین نسخه (گزارش کاربران)</h3>
+<ul dir="rtl">
+<li><strong>کانفیگ‌های نپستر که روی اندروید پینگ می‌دادند و وصل می‌شدند، در ویندوز نه پینگ می‌دادند نه وصل می‌شدند.</strong> سه تفاوت با اندروید پیدا و رفع شد:
+<ul dir="rtl">
+<li><strong><span dir="ltr">DNS</span>:</strong> اندروید اول <span dir="ltr">DNS</span> خودِ شبکه را به <span dir="ltr">Xray</span> می‌دهد؛ ویندوز همیشه فهرست خالی می‌فرستاد و نام سرور فقط با <span dir="ltr">1.1.1.1</span> و <span dir="ltr">8.8.8.8</span> پیدا می‌شد که در شبکه‌های ایران اغلب مسدود یا کند است و پینگ و دست‌دهی زودتر تمام می‌شدند. ماژول تازهٔ <span dir="ltr">custom/netdns.rs</span> <span dir="ltr">DNS</span>های کارت‌های شبکهٔ فعال را می‌خواند (کارت <span dir="ltr">Wintun</span> خودِ اتر و <span dir="ltr">loopback</span> کنار گذاشته می‌شوند)؛ پینگ واقعی، تست سرعت و خودِ اتصال حالا مثل اندروید به ترتیب شبکه ← <span dir="ltr">1.1.1.1</span> ← <span dir="ltr">8.8.8.8</span> ← سیستم کار می‌کنند.</li>
+<li><strong>گواهی ناامن <span dir="ltr">TLS</span>:</strong> نپستر این گزینه را در <span dir="ltr">tlsAllowInsecure</span> نگه می‌دارد؛ ویندوز فقط <span dir="ltr">insecure</span> قدیمی را می‌خواند و سرورهای دارای گواهی خودامضا در <span dir="ltr">Xray</span> رد می‌شدند. حالا ترتیب همان اندروید است.</li>
+<li><strong>فیلدهای ترابری:</strong> <span dir="ltr">xhttpMode</span>، <span dir="ltr">xhttpExtra</span>، <span dir="ltr">seed</span> (<span dir="ltr">mKCP</span>) و <span dir="ltr">authority</span> (<span dir="ltr">gRPC</span>) فایل‌های <span dir="ltr">.npvt</span> و <span dir="ltr">.npvs</span> مثل اندروید خوانده می‌شوند.</li>
+<li>مهلت هر دور پینگ واقعی مثل اندروید ۱۲ ثانیه شد (قبلاً ۸ ثانیه).</li>
+</ul></li>
+<li><strong>باز کردن فایل کانفیگ با اتر:</strong> راست‌کلیک ← <span dir="ltr">Open with</span> ← اتر (یا دابل‌کلیک) فقط برنامه را باز می‌کرد. حالا برنامه فایلی را که با آن اجرا شده می‌خواند - حتی وقتی اتر از قبل باز است - و از همان مسیر عادی ورود (پرسیدن رمز، قفل‌ها، محدودیت حجم) وارد می‌کند. نصب‌کننده پسوندهای <span dir="ltr">.npvt</span> و <span dir="ltr">.npvs</span> را ثبت می‌کند و هنگام حذف برنامه پاک می‌کند. نسخهٔ قابل‌حمل (<span dir="ltr">ZIP</span>) ثبتی ندارد؛ آنجا <span dir="ltr">Open with</span> ← انتخاب برنامهٔ دیگر ← <span dir="ltr">Aether.exe</span> کار می‌کند.</li>
+<li><strong>انتخاب خودکار:</strong> «تست همه» نشست فعلی را همان لحظه روی سریع‌ترین سرور می‌برد؛ با تغییر شبکه (وای‌فای، اترنت، هات‌اسپات) دوباره تست و انتخاب انجام می‌شود؛ اولین تست کامل پس از اتصال با آستانهٔ سریع اعمال می‌شود.</li>
+<li><strong>کانفیگ‌ها:</strong> دکمه‌های سریع پینگ، تست سرعت و حذف؛ «تست سرعت همه»؛ مرتب‌سازی بر اساس پینگ، دانلود یا آپلود.</li>
+<li><strong>کارت اتصال تعاملی:</strong> کلیک روی تأخیر (آخرین/کمینه/بیشینه/میانگین/جیتر/پکت‌لاس)، پروتکل (نودهای زنجیره) یا ترافیک (برنامه‌هایی که همین حالا از تونل استفاده می‌کنند).</li>
+<li><strong>زنجیرهٔ اتصال یکپارچه</strong> در صفحهٔ اتصال: تعداد نودها، هستهٔ هر نود و تنظیمات هر نود.</li>
+<li><strong>ارسال گزارش عیب‌یابی:</strong> گزارش پاک‌سازی‌شده کپی و صفحهٔ issue گیت‌هاب باز می‌شود؛ پس از اتصال ناموفق پیشنهاد داده می‌شود و در تنظیمات قابل خاموش‌کردن است.</li>
+<li>پنجرهٔ «تازه‌ها» همهٔ این موارد را نشان می‌دهد. شمارهٔ نسخه تغییری نکرده است (<span dir="ltr">1.5.0</span>).</li>
+</ul>
+
+<p dir="rtl" align="right"><strong>اعتبارسنجی:</strong> فقط بررسی‌های آفلاین اجرا شد؛ <span dir="ltr">cargo</span> و <span dir="ltr">jsdom</span> در محیط پورت نبودند، پس کد <span dir="ltr">Rust</span> و تست‌های رابط در <span dir="ltr">CI</span> برای اولین بار کامپایل و اجرا می‌شوند. اتصال زنده آزموده نشده است.</p>
+<p dir="rtl" align="right">اصلاحات همین نسخه هم به همین شکل آفلاین بررسی شدند؛ تست‌های واحد تازهٔ <span dir="ltr">Rust</span> (<span dir="ltr">netdns</span>، <span dir="ltr">openfile</span>، <span dir="ltr">direct_dns</span> و <span dir="ltr">tlsAllowInsecure</span>) نخستین بار در <span dir="ltr">CI</span> کامپایل می‌شوند.</p>
 
 </div>

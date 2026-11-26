@@ -1,6 +1,6 @@
 [package]
 name = "aether-desktop"
-version = "1.4.0"
+version = "1.5.0"
 description = "Aether Desktop - Windows edition"
 authors = ["Cluvex Studio"]
 edition = "2021"

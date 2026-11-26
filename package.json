@@ -1,6 +1,6 @@
 {
   "name": "aether-desktop",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Aether Desktop - the Windows edition of Aether Mobile",
   "type": "module",
@@ -10,7 +10,7 @@
     "build": "tauri build",
     "web:dev": "vite",
     "web:build": "vite build",
-    "test": "node tests/js-syntax.mjs && node --import ./tests/png-loader.mjs tests/ui-smoke.mjs && node --import ./tests/png-loader.mjs tests/settings-smoke.mjs && node --import ./tests/png-loader.mjs tests/assistant-smoke.mjs && node --import ./tests/png-loader.mjs tests/chat-smoke.mjs && node --import ./tests/png-loader.mjs tests/profile-sync.mjs && node tests/glow-direction.mjs && node --import ./tests/png-loader.mjs tests/css-classes.mjs && node --import ./tests/png-loader.mjs tests/protocol-options.mjs && node --import ./tests/png-loader.mjs tests/custom-ping.mjs && node --import ./tests/png-loader.mjs tests/file-drop.mjs && node --import ./tests/png-loader.mjs tests/whatsnew.mjs && node --import ./tests/png-loader.mjs tests/design140b.mjs && node --import ./tests/png-loader.mjs tests/catalog140.mjs && node tests/i18n-scan-keys.mjs && node tests/closeout140.mjs && node tests/sound-assets140.mjs && node tests/npvs-i18n.mjs && node tests/qr140.mjs && node --import ./tests/png-loader.mjs tests/uiux-catalog140.mjs && node --import ./tests/png-loader.mjs tests/desktop-startup140.mjs && node --import ./tests/png-loader.mjs tests/desktop-routing140.mjs",
+    "test": "node tests/js-syntax.mjs && node tests/chainbuilder150.mjs && node --import ./tests/png-loader.mjs tests/ui-smoke.mjs && node --import ./tests/png-loader.mjs tests/settings-smoke.mjs && node --import ./tests/png-loader.mjs tests/assistant-smoke.mjs && node --import ./tests/png-loader.mjs tests/chat-smoke.mjs && node --import ./tests/png-loader.mjs tests/profile-sync.mjs && node tests/glow-direction.mjs && node --import ./tests/png-loader.mjs tests/css-classes.mjs && node --import ./tests/png-loader.mjs tests/protocol-options.mjs && node --import ./tests/png-loader.mjs tests/custom-ping.mjs && node --import ./tests/png-loader.mjs tests/file-drop.mjs && node --import ./tests/png-loader.mjs tests/whatsnew.mjs && node --import ./tests/png-loader.mjs tests/design140b.mjs && node --import ./tests/png-loader.mjs tests/catalog140.mjs && node tests/i18n-scan-keys.mjs && node tests/closeout140.mjs && node tests/sound-assets140.mjs && node tests/npvs-i18n.mjs && node tests/qr140.mjs && node --import ./tests/png-loader.mjs tests/uiux-catalog140.mjs && node --import ./tests/png-loader.mjs tests/desktop-startup140.mjs && node --import ./tests/png-loader.mjs tests/desktop-routing140.mjs",
     "test:layout": "vite build && node tests/layout-desktop.mjs",
     "preflight": "bash scripts/preflight-local.sh",
     "test:parity": "vite build && node tests/visual-parity.mjs",

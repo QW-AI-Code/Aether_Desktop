@@ -17,6 +17,59 @@ export const LANGS = [
 ]
 
 const FA = {
+  'A 3-node chain always contains a config: the engine runs at most two of Aether, Psiphon and Tor one after the other, and the third node is your own config (first or last).': 'زنجیرهٔ ۳ نودی همیشه یک کانفیگ دارد: هسته حداکثر دو تا از Aether، Psiphon و Tor را پشت سر هم اجرا می‌کند و نود سوم کانفیگ خود شماست (اول یا آخر).',
+  // 1.5.0 (same version) — fast auto-select, quick actions, speed sort, card details, chain builder, diagnostics
+  'Aether engine: Cloudflare WARP / MASQUE tunnel': 'هستهٔ اتر: تونل WARP / MASQUE کلادفلر',
+  'Answered / probes': 'پاسخ‌داده / کل آزمون‌ها',
+  'Average': 'میانگین',
+  'Cloudflare WARP or MASQUE, with Smart mode and anti-DPI': 'WARP یا MASQUE کلادفلر، با حالت هوشمند و ضد DPI',
+  'Connection chain': 'زنجیرهٔ اتصال',
+  'Could not prepare the diagnostics report.': 'آماده‌سازی گزارش عیب‌یابی ممکن نشد.',
+  'Download speed': 'سرعت دانلود',
+  'Exit node: websites see this node\u2019s address': 'نود خروجی: سایت‌ها نشانی این نود را می‌بینند',
+  'First node: the only one your network (and its DPI) sees': 'نود اول: تنها نودی که شبکهٔ شما (و DPI آن) می‌بیند',
+  'Internet': 'اینترنت',
+  'Jitter': 'جیتر (نوسان)',
+  'Last': 'آخرین',
+  'Latency details': 'جزئیات تأخیر (پینگ)',
+  'Maximum': 'بیشینه',
+  'Measure 10 times': '۱۰ بار اندازه بگیر',
+  'Measured through the live tunnel since this connection started. A probe without an answer counts as lost.': 'از درون همین تونل و از شروع همین اتصال سنجیده شده است. آزمونی که پاسخ نگیرد از دست رفته حساب می‌شود.',
+  'Middle node: carries the traffic between the others': 'نود میانی: ترافیک را بین بقیه جابه‌جا می‌کند',
+  'Minimum': 'کمینه',
+  'No program is using the tunnel right now.': 'همین حالا هیچ برنامه‌ای از تونل استفاده نمی‌کند.',
+  'Node {0}': 'نود {0}',
+  'Not connected. Connect to see the nodes your traffic passes through.': 'متصل نیستید. برای دیدن نودهایی که ترافیک از آن‌ها می‌گذرد وصل شوید.',
+  'Number of nodes': 'تعداد نودها',
+  'Offer to report crashes and failed connections to the developers on GitHub. The report is redacted (no IPs, servers or keys) and is only sent when you submit it.': 'پیشنهاد ارسال گزارش کرش‌ها و اتصال‌های ناموفق به سازندگان در گیت‌هاب. گزارش پاک‌سازی می‌شود (بدون IP، سرور یا کلید) و فقط وقتی خودتان ثبتش کنید ارسال می‌شود.',
+  'Packet loss': 'پکت لاس (از دست رفتن)',
+  'Pick how many nodes the chain has and which core runs on each node, in the order traffic leaves this computer. A node\u2019s Settings button opens that core\u2019s options.': 'تعداد نودهای زنجیره و هستهٔ هر نود را به ترتیبی که ترافیک از این رایانه خارج می‌شود انتخاب کنید. دکمهٔ «تنظیمات» هر نود، گزینه‌های همان هسته را باز می‌کند.',
+  'Programs connected to Aether\u2019s local proxy right now. Windows keeps no per-program byte counters for these connections, so the number of open connections is shown. TUN mode traffic is not listed.': 'برنامه‌هایی که همین حالا به پراکسی محلی اتر وصل‌اند. ویندوز برای این اتصال‌ها شمارندهٔ بایتِ جدا برای هر برنامه نگه نمی‌دارد، پس تعداد اتصال‌های باز نشان داده می‌شود. ترافیک حالت TUN در این فهرست نیست.',
+  'Programs using the tunnel now': 'برنامه‌هایی که همین حالا از تونل استفاده می‌کنند',
+  'Psiphon network': 'شبکهٔ سایفون',
+  'Psiphon network, exit country automatic or chosen': 'شبکهٔ سایفون، کشور خروجی خودکار یا انتخابی',
+  'Send a diagnostics report to the developers? It contains the redacted log of this attempt, no IPs, servers or keys. You can turn this off in Settings.': 'گزارش عیب‌یابی برای سازندگان فرستاده شود؟ شامل لاگِ پاک‌سازی‌شدهٔ همین تلاش است، بدون IP، سرور یا کلید. می‌توانید این پیشنهاد را در تنظیمات خاموش کنید.',
+  'Send diagnostics': 'ارسال گزارش عیب‌یابی',
+  'Send report': 'ارسال گزارش',
+  'Not now': 'الان نه',
+  'Send a diagnostics report now': 'همین حالا گزارش عیب‌یابی بفرست',
+  'Copies a redacted report and opens a new GitHub issue for the developers.': 'یک گزارشِ پاک‌سازی‌شده کپی می‌کند و صفحهٔ ثبت issue تازه برای سازندگان را در گیت‌هاب باز می‌کند.',
+  'Sort servers by': 'مرتب‌سازی سرورها بر اساس',
+  'Speed test all': 'تست سرعت همه',
+  'Testing speeds…': 'در حال تست سرعت…',
+  'The full report was copied. Paste it into the GitHub page before submitting.': 'گزارش کامل کپی شد. پیش از ثبت، آن را در صفحهٔ گیت‌هاب جای‌گذاری کنید.',
+  'The list of programs is not available on this system.': 'فهرست برنامه‌ها روی این سیستم در دسترس نیست.',
+  'The only node: your network sees it and websites see its address': 'تنها نود: شبکهٔ شما آن را می‌بیند و سایت‌ها نشانی آن را',
+  'The report page was opened. Copy the log from Diagnostics if you want to add it.': 'صفحهٔ گزارش باز شد. اگر می‌خواهید لاگ را هم اضافه کنید، آن را از بخش عیب‌یابی کپی کنید.',
+  'This chain needs a custom config. Add or select one in Custom configs.': 'این زنجیره به یک کانفیگ شخصی نیاز دارد. در بخش کانفیگ‌های سفارشی یکی اضافه یا انتخاب کنید.',
+  'This computer': 'این رایانه',
+  'Tor network, bridges when it is blocked': 'شبکهٔ تور، با بریج وقتی مسدود است',
+  'Tor network: three relays': 'شبکهٔ تور: سه رله',
+  'Traffic details': 'جزئیات ترافیک',
+  'Upload speed': 'سرعت آپلود',
+  'Your own V2Ray / Xray / NapsternetV server': 'سرور V2Ray / Xray / نپستر شخصی شما',
+  'Your own config (Xray)': 'کانفیگ شخصی شما (Xray)',
+  '{0} connections': '{0} اتصال',
   // 1.4.0 — core 2.4.0 TLS / API options
   'Server names (SNI)': 'نام سرور (SNI)',
   'MASQUE server name': 'نام سرور MASQUE',
@@ -139,8 +192,6 @@ const FA = {
   'Switching to the best healthy config…': 'در حال انتقال به بهترین کانفیگ سالم…',
   'Starting Psiphon through Tor…': 'در حال راه‌اندازی سایفون از طریق تور…',
   'Starting the tunnel through Tor…': 'در حال راه‌اندازی تونل از طریق تور…',
-  'Initial verification skipped': 'راستی‌آزمایی اولیه رد شد',
-  'Initial verification skipped — data path is up; health monitoring continues.': 'راستی‌آزمایی اولیه رد شد — مسیر داده برقرار است؛ پایش سلامت ادامه دارد.',
   'Watchdog reconnect…': 'اتصال مجدد ناظر خودکار…',
   'Tor is not moving inside the tunnel — trying the next strategy…': 'ترافیک تور در داخل تونل عبور نمی‌کند — در حال آزمایش راهبرد بعدی…',
   'Reaching the Tor network… {p}%': 'در حال اتصال به شبکه تور… {p}%',
@@ -149,7 +200,6 @@ const FA = {
   'Psiphon (custom chain)': 'سایفون (زنجیرهٔ سفارشی)',
   'Pipeline: {chain} (custom config chain)': 'خط لوله: {chain} (زنجیرهٔ کانفیگ سفارشی)',
   'SOCKS5 port is up — bringing up the data path.': 'پورت SOCKS5 بالا آمد — در حال برقراری مسیر داده.',
-  'All checks passed — tunnel is ready.': 'همهٔ بررسی‌ها موفق بود — تونل آماده است.',
   'Watchdog confirmed a persistent upstream failure — restarting the engine.': 'ناظر خودکار خرابی پایدار مسیر بالادست را تأیید کرد — در حال راه‌اندازی مجدد موتور.',
   'Xray keeps exiting — rebuilding the whole session.': 'Xray پیوسته خارج می‌شود — در حال بازسازی کامل نشست.',
   'The engine keeps dying — giving up after repeated restarts.': 'موتور پیوسته از کار می‌افتد — پس از چند راه‌اندازی مجدد متوقف شد.',
@@ -169,13 +219,18 @@ const FA = {
   'QR from image': 'کد QR از تصویر',
   'Import QR from an image file; no camera is required.': 'ورود کد QR از فایل تصویر؛ نیازی به دوربین نیست.',
   'Smart: racing independent connection tactics…': 'هوشمند: آزمون موازی راهکارهای مستقل اتصال…',
+  // --- 1.5.0 — حالت هوشمند جدید و دروازهٔ آمادگی هسته (پورت موبایل 1.7.0) ---
+  'Testing every protocol side by side…': 'همهٔ پروتکل‌ها هم‌زمان و منصفانه تست می‌شوند…',
+  'Comparing the working routes (ping and speed)…': 'مقایسهٔ مسیرهای سالم (پینگ و سرعت)…',
+  'Smart tested every protocol fairly, but none reached the internet on this network right now. Unplug the internet/modem for a minute, plug it back in and try again.': 'اتصال هوشمند همهٔ پروتکل‌ها را منصفانه تست کرد اما هیچ‌کدام در این لحظه روی این شبکه به اینترنت نرسید. اتصال اینترنت/مودم را یک دقیقه قطع و وصل کنید و دوباره تلاش کنید.',
+  'No working gateway was found in time for this strategy.': 'برای این راهبرد در زمان مقرر دروازهٔ سالمی پیدا نشد.',
+  'SOCKS5 port is bound; waiting for the engine to start serving it.': 'پورت SOCKS5 رزرو شد؛ منتظر می‌مانیم تا موتور واقعاً سرویس‌دهی را شروع کند.',
   'Link or text': 'لینک یا متن',
   'Import file': 'وارد کردن فایل',
   'Name': 'نام',
-  'Default on for all six built-in modes. Turning off skips optional initial connection checks, not engine startup, Tor bootstrap, exit-IP lookup or ongoing health monitoring.': 'پیش‌فرض برای شش حالت اصلی روشن است. خاموش‌کردن، تست اختیاری اولیه را رد می‌کند؛ نه راه‌اندازی هسته، آماده‌سازی Tor، دریافت IP خروجی یا پایش مداوم سلامت اتصال را.',
   'Real delay: a request through each config': 'تأخیر واقعی: یک درخواست از داخل هر کانفیگ',
-  'Verify connection': 'راستی\u200cآزمایی اتصال',
-  'Only skips the initial check; core startup and health monitoring stay enabled.': 'فقط بررسی اولیه رد می\u200cشود؛ راه\u200cاندازی هسته و پایش سلامت فعال می\u200cمانند.',
+  'Smart connection gate': 'دروازهٔ هوشمند اتصال',
+  'Always on, nothing to set. Connected is shown only after real data has crossed the tunnel, usually within a second, so a fake connection cannot pass. The old optional verification is gone: it kept MASQUE from connecting and made connects slow.': 'همیشه فعال است و تنظیمی لازم ندارد. «متصل» فقط وقتی نشان داده می\u200cشود که داده واقعاً از تونل رد و بدل شده باشد؛ معمولاً در کمتر از یک ثانیه. پس اتصال فیک ممکن نیست. گزینهٔ قدیمیِ راستی\u200cآزمایی حذف شد: باعث می\u200cشد MASQUE وصل نشود و اتصال\u200cها کند شوند.',
   'Add subscription': 'افزودن اشتراک',
   'Subscription name': 'نام اشتراک',
   'HTTPS subscription URL': 'نشانی HTTPS اشتراک',
@@ -267,7 +322,7 @@ const FA = {
   'file is larger than 2 MB': 'حجم فایل بیش از ۲ مگابایت است',
   'file could not be read': 'فایل خوانده نشد',
   'Starting the custom config…': 'در حال راه‌اندازیِ کانفیگ سفارشی…',
-  'Checking the custom config…': 'در حال بررسیِ کانفیگ سفارشی…',
+  'Smart gate: proving the custom config…': 'دروازهٔ هوشمند: اثبات عبور داده از کانفیگ سفارشی…',
   'Starting Psiphon…': 'در حال راه‌اندازیِ سایفون…',
   'This custom config has expired. Import a fresh one or pick another config.': 'این کانفیگِ سفارشی منقضی شده است. یک کانفیگِ تازه وارد کنید یا کانفیگِ دیگری انتخاب کنید.',
   'This custom config is locked to mobile data by its author, so it cannot run on Windows.': 'سازندهٔ این کانفیگ آن را به اینترنتِ موبایل محدود کرده، پس روی ویندوز اجرا نمی‌شود.',
@@ -513,6 +568,83 @@ const FA = {
   'The answer was cut off before it finished.': 'پاسخ پیش از تمام‌شدن بریده شد.',
   'The model returned no answer.': 'مدل هیچ پاسخی برنگرداند.',
   'The request failed.': 'درخواست شکست خورد.',
+  // 1.5.0 (same version): error sentences the AI backend sends as they are.
+  'Connect a tunnel before using AI.': 'برای استفاده از دستیار هوش مصنوعی، اول تونل را وصل کنید.',
+  'This active exit is not eligible for AI.': 'خروجی فعلی اتصال برای دستیار هوش مصنوعی مناسب نیست؛ حالت اتصال را عوض کنید.',
+  'A request is already running.': 'یک درخواست در حال اجراست؛ کمی صبر کنید.',
+  'No API key stored.': 'هنوز کلید API ذخیره نشده است.',
+  'No Gemini model selected.': 'هیچ مدل Gemini انتخاب نشده است.',
+  'No attempt was made.': 'درخواستی فرستاده نشد.',
+  'No response through the tunnel.': 'از داخل تونل پاسخی نیامد. اتصال را بررسی کنید و دوباره تلاش کنید.',
+  "Google's reply was not valid JSON.": 'پاسخ گوگل قابل خواندن نبود.',
+  'The model returned an empty answer.': 'مدل پاسخ خالی برگرداند.',
+  'Nothing to send.': 'متنی برای ارسال وجود ندارد.',
+  'That message is no longer in the conversation.': 'این پیام دیگر در گفت‌وگو نیست.',
+  'Only a failed message can be sent again.': 'فقط پیامی که ناموفق بوده دوباره فرستاده می‌شود.',
+  'There is nothing to send again.': 'چیزی برای ارسال دوباره وجود ندارد.',
+  'Only your own message can be edited.': 'فقط پیام خودتان قابل ویرایش است.',
+  'Those changes are already applied.': 'این تغییرات قبلاً اعمال شده‌اند.',
+  'That message does not propose any settings.': 'این پیام تنظیمی پیشنهاد نمی‌کند.',
+  "The advisor's answer was not valid JSON.": 'پاسخ مشاور قابل خواندن نبود.',
+  "The advisor's answer was not in the expected form.": 'پاسخ مشاور در قالب مورد انتظار نبود.',
+  'The request thread stopped unexpectedly.': 'درخواست به‌طور غیرمنتظره متوقف شد؛ دوباره تلاش کنید.',
+  'Controller unavailable': 'کنترل‌گر اتصال در دسترس نیست؛ برنامه را دوباره باز کنید.',
+  'Profile store unavailable': 'ذخیره‌گاه تنظیمات در دسترس نیست؛ برنامه را دوباره باز کنید.',
+  'Startup worker interrupted': 'راه‌اندازی برنامه قطع شد؛ برنامه را دوباره باز کنید.',
+  'Disconnect before changing connection profiles': 'پیش از عوض‌کردن پروفایل اتصال، اتصال را قطع کنید.',
+  'Aether initialization timed out; restart the app and check diagnostics': 'راه‌اندازی اتر بیش از حد طول کشید؛ برنامه را دوباره باز کنید و عیب‌یابی را ببینید.',
+  'expected true or false': 'مقدار باید روشن یا خاموش باشد.',
+  'expected a number': 'مقدار باید عدد باشد.',
+  'not a usable number': 'عدد قابل استفاده نیست.',
+  'not a number': 'عدد نیست.',
+  'contains a line break': 'نباید شامل شکست خط باشد.',
+  'expected a list': 'مقدار باید فهرست باشد.',
+  'expected a name': 'مقدار باید یک نام باشد.',
+  'expected text': 'مقدار باید متن باشد.',
+  'Import is too large': 'فایل ورودی بیش از حد بزرگ است.',
+  'Tunnel started, but no real data crossed it (smart gate)': 'تونل بالا آمد، اما هیچ دادهٔ واقعی از آن رد نشد (دروازهٔ هوشمند).',
+  'The engine stopped while the smart gate was proving the tunnel': 'هسته هنگام اثبات تونل توسط دروازهٔ هوشمند متوقف شد.',
+  'The engine exited while starting Psiphon': 'هسته هنگام راه‌اندازی سایفون بسته شد.',
+  'The engine-managed Psiphon listener did not come up in time': 'سایفونِ داخل هسته به‌موقع آماده نشد.',
+  'this installation carries no tor binary': 'این نسخهٔ نصب‌شده فایل اجرایی Tor را ندارد.',
+  'Switching to the fastest config…': 'در حال انتقال به سریع‌ترین کانفیگ…',
+  'no custom session': 'هیچ نشست کانفیگ سفارشی فعالی وجود ندارد.',
+  'http bridge bind failed': 'پورت پل HTTP باز نشد؛ برنامهٔ دیگری از آن استفاده می‌کند.',
+  'No active profile': 'هیچ پروفایل فعالی وجود ندارد.',
+  'Export is too large': 'فایل خروجی بیش از حد بزرگ است.',
+  'Invalid profile file': 'فایل پروفایل نامعتبر است.',
+  'Unsupported profile schema': 'قالب این فایل پروفایل پشتیبانی نمی‌شود.',
+  'Profiles missing': 'فایل هیچ پروفایلی ندارد.',
+  'Invalid profile count': 'تعداد پروفایل‌ها نامعتبر است.',
+  'Profile missing': 'پروفایل پیدا نشد.',
+  'Unknown or sensitive field': 'فایل شامل فیلد ناشناخته یا حساس است.',
+  'Invalid profile value': 'یکی از مقدارهای پروفایل نامعتبر است.',
+  'Too many profiles (maximum 20)': 'تعداد پروفایل‌ها بیش از حد مجاز است (حداکثر ۲۰).',
+  'Profile not found': 'پروفایل پیدا نشد.',
+  'The default profile cannot be renamed': 'نام پروفایل پیش‌فرض قابل تغییر نیست.',
+  'The default profile cannot be deleted': 'پروفایل پیش‌فرض قابل حذف نیست.',
+  'The last profile cannot be deleted': 'آخرین پروفایل قابل حذف نیست.',
+  'Unknown profile action': 'عملیات پروفایل ناشناخته است.',
+  'Profile name is empty': 'نام پروفایل خالی است.',
+  'Profile collection is too large': 'مجموعهٔ پروفایل‌ها بیش از حد بزرگ است.',
+  'Destination tab no longer exists': 'تب مقصد دیگر وجود ندارد.',
+  'Too many configs (maximum 500); nothing imported': 'تعداد کانفیگ‌ها بیش از حد مجاز است (حداکثر ۵۰۰)؛ چیزی وارد نشد.',
+  'store unavailable': 'ذخیره‌گاه کانفیگ‌ها در دسترس نیست.',
+  'store not initialised': 'ذخیره‌گاه کانفیگ‌ها هنوز آماده نیست.',
+  'config changed': 'کانفیگ در این فاصله تغییر کرد؛ دوباره تلاش کنید.',
+  'stored config is not valid JSON': 'کانفیگ ذخیره‌شده JSON معتبر نیست.',
+  'ceiling must be between 50 and 5000': 'سقف باید بین ۵۰ و ۵۰۰۰ باشد.',
+  'not a Cloudflare IP': 'این IP متعلق به کلادفلر نیست.',
+  'unsupported config': 'این کانفیگ پشتیبانی نمی‌شود.',
+  'port not allowed': 'این پورت مجاز نیست.',
+  'not editable': 'قابل ویرایش نیست.',
+  'changed before scan': 'کانفیگ پیش از اسکن تغییر کرد.',
+  'truncated npvt part': 'بخشی از فایل NPVT ناقص است.',
+  'not an npvt table file': 'فایل جدول NPVT نیست.',
+  'bad round count': 'فایل NPVT نامعتبر است.',
+  'npvt table file has the wrong size': 'اندازهٔ فایل جدول NPVT نادرست است.',
+  'not an NPVT1 file': 'فایل NPVT1 نیست.',
+  'npvt part is not base64': 'بخشی از فایل NPVT قالب base64 ندارد.',
   // --- v12 (۱.۲.۳): بک‌اند ترابرد زنجیره‌ای ---
   'Transport': 'ترابرد',
   'Backend': 'بک‌اند',
@@ -617,11 +749,11 @@ const FA = {
   'Tap to connect securely': 'برای اتصال امن لمس کنید',
   'Tap to disconnect': 'برای قطع اتصال لمس کنید',
   'Something went wrong': 'مشکلی پیش آمد',
-  'Verifying connection…': 'در حال راستی‌آزمایی اتصال…',
+  'Smart gate: waiting for real data…': 'دروازهٔ هوشمند: در انتظار عبور دادهٔ واقعی…',
   'Disconnected': 'قطع',
   'Starting engine…': 'در حال راه‌اندازی موتور…',
   'Connecting…': 'در حال اتصال…',
-  'Verifying…': 'در حال راستی‌آزمایی…',
+  'Smart gate…': 'دروازهٔ هوشمند…',
   'Connected': 'متصل',
   'Reconnecting…': 'اتصال دوباره…',
   'Disconnecting…': 'در حال قطع اتصال…',
@@ -855,8 +987,8 @@ const FA = {
     'اتر/<bdi>WARP</bdi> خروجیِ <bdi>anycast</bdi> خودش را انتخاب می‌کند.',
   'Psiphon treats this as a hard region filter. If it cannot establish there, the app retries automatically with an automatic exit.':
     'سایفون این را یک فیلتر قطعیِ منطقه می‌گیرد. اگر آنجا وصل نشود، برنامه خودکار با خروجیِ خودکار دوباره تلاش می‌کند.',
-  'Smart tries the protocols one at a time, starting with the one most likely to work on this network, and keeps the first one that passes the self-test.':
-    'حالت هوشمند پروتکل‌ها را یکی‌یکی امتحان می‌کند، از محتمل‌ترین گزینه برای همین شبکه شروع می‌کند و اولین پروتکلی را که از خودآزمایی سربلند بیرون بیاید نگه می‌دارد.',
+  'Smart tests WireGuard and MASQUE side by side, measures the ping and speed of every route that works, connects the best one and remembers it per network.':
+    'حالت هوشمند <bdi>WireGuard</bdi> و <bdi>MASQUE</bdi> را هم‌زمان و منصفانه تست می‌کند، پینگ و سرعت هر مسیری را که کار کند می‌سنجد، بهترین را وصل می‌کند و برای هر شبکه به خاطر می‌سپارد.',
   'There is no WARP tunnel in this mode: Tor carries the traffic by itself, so the protocol, scan mode and IP version are not used.':
     'در این حالت تونل <bdi>WARP</bdi> وجود ندارد: تور خودش ترافیک را می‌برد، پس پروتکل، حالت اسکن و نسخهٔ آی‌پی استفاده نمی‌شوند.',
 
@@ -1169,9 +1301,23 @@ const STATIC_ERR = {
   'truncated NPVS payload': 'محتوای NPVS ناقص است.',
   'NPVS configs missing': 'فایل NPVS کانفیگی ندارد.',
 }
+// 1.5.0 (same version): raw AI / Google errors (REST messages, TLS and socket
+// failures, finish reasons) mapped to the same Persian sentences as `failureText`.
+const AI_ERR = [
+  [/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|invalid api key/i, 'Google rejected this key. Check it in AI Studio, or paste it again.'],
+  [/quota|RESOURCE_EXHAUSTED|rate.?limit|too many requests|\b429\b/i, 'The free quota for this key is used up for now. Try again later.'],
+  [/is not one of the models this app supports|models\/[^ ]+ is not found|not supported for generateContent|NOT_FOUND/i, 'This key cannot use the selected model. Discover the models again.'],
+  [/TLS could not be initialised|TLS handshake with .* failed|reading the reply failed|connection (refused|reset)|timed out|timeout|socks/i, 'The request never reached Google. Check the tunnel and try again.'],
+  [/\b50[0-9]\b|INTERNAL|UNAVAILABLE|overloaded|internal error/i, 'Google failed on its own side. This is not your connection — try again.'],
+  [/^(SAFETY|PROHIBITED_CONTENT|BLOCKLIST|SPII|RECITATION|OTHER)$/, 'The model returned no answer.'],
+  [/^MAX_TOKENS$/, 'The answer was cut off before it finished.'],
+]
 function dynamicError(key) {
-  if (typeof key !== 'string' || key.length < 8) return null
+  if (typeof key !== 'string' || key.length < 6) return null
   if (STATIC_ERR[key]) return STATIC_ERR[key]
+  let saved = key.match(/^The changes could not be saved:/i)
+  if (saved) return 'تغییرات ذخیره نشد. دوباره تلاش کنید.'
+
   let m = key.match(/^subscription download failed:\s*([\s\S]*)$/i)
   if (m) {
     const detail = m[1]
@@ -1190,6 +1336,24 @@ function dynamicError(key) {
     if (hit) return hit[1]
   }
   return null
+}
+
+/**
+ * 1.5.0 (same version): the user-facing text of an AI failure. In Persian a raw
+ * backend / Google message never reaches the screen: a known sentence gets its
+ * translation, a known technical shape the matching `failureText` sentence, and
+ * anything else the generic "the request failed".
+ */
+export function tAiError(raw) {
+  const key = typeof raw === 'string' ? raw : (raw?.message || String(raw ?? ''))
+  if (current !== 'fa') return key
+  if (FA[key]) return isolateBidi(FA[key])
+  const dyn = dynamicError(key)
+  if (dyn) return isolateBidi(dyn)
+  for (const [re, sentence] of AI_ERR) {
+    if (re.test(key) && FA[sentence]) return isolateBidi(FA[sentence])
+  }
+  return isolateBidi(FA['The request failed.'] || key)
 }
 
 export function t(key) {

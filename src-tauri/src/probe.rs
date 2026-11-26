@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
 use std::time::{Duration, Instant};
 
-/// مقاصد راستی‌آزمایی — همان لیست NetProbe.kt.
+/// مقاصد دروازهٔ هوشمند اتصال (اثبات عبور داده) — همان لیست NetProbe.kt.
 const PROBE_HOSTS: [(&str, u16); 3] = [
     ("cloudflare.com", 80),
     ("www.gstatic.com", 80),
@@ -236,6 +236,27 @@ pub fn tcp_via_proxy_within(dest_ip: &str, dest_port: u16, timeout: Duration) ->
 pub fn tcp_via_proxy_on(proxy_port: u16, dest_ip: &str, dest_port: u16) -> bool {
     socks5_stream_on(proxy_port, dest_ip, dest_port, CONNECT_TIMEOUT).is_some()
 }
+
+// >>> AETHER-APP-PATCH smart-gate-stage-one (1.5.0, same version)
+/// Smart gate for a chained stage 1: CONNECT to `dest_host:dest_port` through
+/// the SOCKS5 proxy on `proxy_port` and prove that real data comes back - an
+/// HTTP status line for port 80, a TLS handshake plus an HTTP answer for 443.
+/// A bare "CONNECT succeeded" reply is not enough: some carriers acknowledge
+/// before they dial. Names are sent as ATYP=DOMAIN (resolved remotely).
+pub fn data_via_proxy_on(proxy_port: u16, dest_host: &str, dest_port: u16, io_timeout: Duration) -> bool {
+    let Some(mut s) = socks5_stream_on(proxy_port, dest_host, dest_port, CONNECT_TIMEOUT) else {
+        return false;
+    };
+    let _ = s.set_read_timeout(Some(io_timeout));
+    let _ = s.set_write_timeout(Some(io_timeout));
+    let answer = if dest_port == 443 {
+        tls_get(s, dest_host, "/")
+    } else {
+        http_get(&mut s, dest_host, "/")
+    };
+    answer.map(|a| a.starts_with("HTTP/")).unwrap_or(false)
+}
+// <<< AETHER-APP-PATCH smart-gate-stage-one
 
 /// معادل `NetProbe.verify()` — یک HEAD واقعی از دل تونل.
 pub fn verify_egress() -> Option<EgressResult> {
@@ -1230,3 +1251,277 @@ pub fn socks5_stream_cancelled(port:u16, host:&str, target_port:u16, timeout:Dur
     if greeting!=[5,0]{return None;}
     Some((socks5_connect_stream(socket,host,target_port)?,tracked))
 }
+
+// >>> AETHER-APP-PATCH smart-1.5.0 (port of Aether Mobile 1.7.0)
+/// A real SOCKS5 greeting on `127.0.0.1:<port>` within `timeout` - the readiness
+/// gate's proof that the engine *serves* its port and has not merely bound it.
+pub fn socks_greeting_within(port: u16, timeout: Duration) -> bool {
+    socks5_greeting_on(port, timeout).is_some()
+}
+
+/// Quality of one proven Smart route, measured **through that route itself**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TunnelQuality {
+    pub rtt_ms: u64,
+    pub down_kbps: u64,
+    pub up_kbps: u64,
+}
+
+const QUALITY_DOWN_BYTES: usize = 393_216;
+const QUALITY_UP_BYTES: usize = 131_072;
+const QUALITY_MIN_DOWN: usize = 32 * 1024;
+const QUALITY_HOST: &str = "speed.cloudflare.com";
+
+fn left_of(deadline: Instant) -> Duration {
+    deadline.saturating_duration_since(Instant::now())
+}
+
+/// Three SOCKS5 CONNECTs to `1.1.1.1:80` (an IP: no DNS), one `HEAD` each, the
+/// lowest time to the first response byte.
+fn quality_rtt(port: u16, deadline: Instant) -> Option<u64> {
+    let mut best: Option<u64> = None;
+    for _ in 0..3 {
+        let left = left_of(deadline);
+        if left < Duration::from_millis(50) {
+            break;
+        }
+        let t = left.min(Duration::from_millis(2_500));
+        let Some(mut s) = socks5_stream_on(port, "1.1.1.1", 80, t) else {
+            continue;
+        };
+        let _ = s.set_read_timeout(Some(t));
+        let _ = s.set_write_timeout(Some(t));
+        let _ = s.set_nodelay(true);
+        let started = Instant::now();
+        if s
+            .write_all(
+                b"HEAD /cdn-cgi/trace HTTP/1.1\r\nHost: 1.1.1.1\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n",
+            )
+            .is_err()
+        {
+            continue;
+        }
+        let mut one = [0u8; 1];
+        if matches!(s.read(&mut one), Ok(n) if n > 0) {
+            let ms = started.elapsed().as_millis() as u64;
+            best = Some(best.map(|b| b.min(ms)).unwrap_or(ms));
+        }
+    }
+    best
+}
+
+/// TLS to `speed.cloudflare.com:443` through the tunnel. `native-tls` verifies
+/// the certificate chain **and** the host name.
+fn quality_tls(
+    port: u16,
+    deadline: Instant,
+) -> Option<native_tls::TlsStream<TcpStream>> {
+    let left = left_of(deadline);
+    if left < Duration::from_millis(100) {
+        return None;
+    }
+    let s = socks5_stream_on(port, QUALITY_HOST, 443, left.min(Duration::from_millis(3_000)))?;
+    s.set_read_timeout(Some(left)).ok()?;
+    s.set_write_timeout(Some(left)).ok()?;
+    let connector = native_tls::TlsConnector::new().ok()?;
+    connector.connect(QUALITY_HOST, s).ok()
+}
+
+fn quality_down(port: u16, deadline: Instant) -> u64 {
+    let Some(mut tls) = quality_tls(port, deadline) else {
+        return 0;
+    };
+    let req = format!(
+        "GET /__down?bytes={QUALITY_DOWN_BYTES} HTTP/1.1\r\nHost: {QUALITY_HOST}\r\nUser-Agent: Mozilla/5.0\r\nAccept: */*\r\nConnection: close\r\n\r\n"
+    );
+    if tls.write_all(req.as_bytes()).is_err() {
+        return 0;
+    }
+    let mut buf = [0u8; 16 * 1024];
+    let mut first: Option<Instant> = None;
+    let mut total = 0usize;
+    loop {
+        let left = left_of(deadline);
+        if left.is_zero() {
+            break;
+        }
+        let _ = tls.get_ref().set_read_timeout(Some(left));
+        match tls.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if first.is_none() {
+                    first = Some(Instant::now());
+                }
+                total += n;
+                if total >= QUALITY_DOWN_BYTES + 4096 {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    let Some(first) = first else { return 0 };
+    if total < QUALITY_MIN_DOWN {
+        return 0;
+    }
+    let ms = (first.elapsed().as_millis() as u64).max(1);
+    (total as u64 * 8) / ms
+}
+
+fn quality_up(port: u16, deadline: Instant) -> u64 {
+    let Some(mut tls) = quality_tls(port, deadline) else {
+        return 0;
+    };
+    let head = format!(
+        "POST /__up HTTP/1.1\r\nHost: {QUALITY_HOST}\r\nUser-Agent: Mozilla/5.0\r\nContent-Type: application/octet-stream\r\nContent-Length: {QUALITY_UP_BYTES}\r\nConnection: close\r\n\r\n"
+    );
+    if tls.write_all(head.as_bytes()).is_err() {
+        return 0;
+    }
+    let started = Instant::now();
+    let zeros = [0u8; 16 * 1024];
+    let mut sent = 0usize;
+    while sent < QUALITY_UP_BYTES {
+        if left_of(deadline).is_zero() {
+            return 0;
+        }
+        let n = (QUALITY_UP_BYTES - sent).min(zeros.len());
+        if tls.write_all(&zeros[..n]).is_err() {
+            return 0;
+        }
+        sent += n;
+    }
+    let _ = tls.flush();
+    let left = left_of(deadline);
+    if left.is_zero() {
+        return 0;
+    }
+    let _ = tls.get_ref().set_read_timeout(Some(left));
+    let mut one = [0u8; 1];
+    match tls.read(&mut one) {
+        Ok(n) if n > 0 => {
+            let ms = (started.elapsed().as_millis() as u64).max(1);
+            (QUALITY_UP_BYTES as u64 * 8) / ms
+        }
+        _ => 0,
+    }
+}
+
+/// Latency, download and upload through the SOCKS5 port of one proven route,
+/// all inside `budget_ms`. `None` when not even the latency leg answered.
+pub fn measure_tunnel_quality(socks_port: u16, budget_ms: u64) -> Option<TunnelQuality> {
+    let deadline = Instant::now() + Duration::from_millis(budget_ms);
+    let rtt_ms = quality_rtt(socks_port, deadline)?;
+    let down_kbps = quality_down(socks_port, deadline);
+    let up_kbps = quality_up(socks_port, deadline);
+    Some(TunnelQuality {
+        rtt_ms,
+        down_kbps,
+        up_kbps,
+    })
+}
+
+/// The MASQUE gateways the QUIC reachability probe asks.
+pub const MASQUE_QUIC_PROBES: [&str; 2] = ["162.159.198.1:443", "162.159.198.2:443"];
+
+/// 1200 random bytes shaped as a QUIC long header with the reserved version
+/// `0x1a2a3a4a`, an 8-byte DCID and an 8-byte SCID. No identity, no server name.
+pub fn build_masque_quic_probe() -> Vec<u8> {
+    let mut b = Vec::with_capacity(1200);
+    let mut tag = 0u8;
+    while b.len() < 1200 {
+        b.extend_from_slice(&probe_cid(tag));
+        tag = tag.wrapping_add(1);
+    }
+    b.truncate(1200);
+    b[0] = 0xC0 | (b[0] & 0x0F);
+    b[1..5].copy_from_slice(&[0x1a, 0x2a, 0x3a, 0x4a]);
+    b[5] = 8;
+    b[14] = 8;
+    b
+}
+
+/// A Version Negotiation packet: long header, version 0.
+pub fn is_masque_quic_answer(r: &[u8]) -> bool {
+    r.len() >= 7 && (r[0] & 0x80) != 0 && r[1..5] == [0, 0, 0, 0]
+}
+
+fn masque_quic_probe(peer: &'static str, timeout: Duration) -> bool {
+    let Ok(addr) = peer.parse::<SocketAddr>() else {
+        return false;
+    };
+    let Ok(sock) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else {
+        return false;
+    };
+    if sock.set_read_timeout(Some(timeout)).is_err() || sock.connect(addr).is_err() {
+        return false;
+    }
+    if sock.send(&build_masque_quic_probe()).is_err() {
+        return false;
+    }
+    let mut buf = [0u8; 1500];
+    matches!(sock.recv(&mut buf), Ok(n) if is_masque_quic_answer(&buf[..n]))
+}
+
+/// Does QUIC reach the MASQUE gateways? Two probes in parallel, 1.5 s.
+/// `Some(true)` if either answered with Version Negotiation.
+pub fn masque_quic_reachable() -> Option<bool> {
+    let handles: Vec<_> = MASQUE_QUIC_PROBES
+        .iter()
+        .map(|peer| {
+            let peer: &'static str = *peer;
+            (
+                peer,
+                std::thread::Builder::new()
+                    .name("aether-quic-masque".into())
+                    .spawn(move || masque_quic_probe(peer, Duration::from_millis(1_500))),
+            )
+        })
+        .collect();
+    let mut any = false;
+    let mut asked = false;
+    for (peer, h) in handles {
+        let Ok(h) = h else { continue };
+        asked = true;
+        let ok = h.join().unwrap_or(false);
+        DiagnosticsLog::i(
+            "netprobe",
+            &format!(
+                "quic probe {peer} → {}",
+                if ok { "version negotiation" } else { "no answer" }
+            ),
+        );
+        any |= ok;
+    }
+    asked.then_some(any)
+}
+
+#[cfg(test)]
+mod smart150_tests {
+    use super::*;
+    #[test]
+    fn the_masque_quic_probe_has_the_documented_shape() {
+        let b = build_masque_quic_probe();
+        assert_eq!(b.len(), 1200);
+        assert_eq!(b[0] & 0xF0, 0xC0);
+        assert_eq!(&b[1..5], &[0x1a, 0x2a, 0x3a, 0x4a]);
+        assert_eq!(b[5], 8);
+        assert_eq!(b[14], 8);
+    }
+    #[test]
+    fn only_a_version_negotiation_packet_counts() {
+        assert!(is_masque_quic_answer(&[0x80, 0, 0, 0, 0, 8, 1]));
+        assert!(!is_masque_quic_answer(&[0x40, 0, 0, 0, 0, 8, 1]));
+        assert!(!is_masque_quic_answer(&[0x80, 0, 0, 0, 1, 8, 1]));
+        assert!(!is_masque_quic_answer(&[0x80, 0, 0, 0, 0, 8]));
+    }
+    #[test]
+    fn a_dead_port_measures_nothing() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        drop(l);
+        assert!(measure_tunnel_quality(port, 300).is_none());
+        assert!(!socks_greeting_within(port, Duration::from_millis(200)));
+    }
+}
+// <<< AETHER-APP-PATCH smart-1.5.0

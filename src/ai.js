@@ -20,7 +20,7 @@
 
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { t, getLang } from './i18n.js'
+import { t, getLang, tAiError } from './i18n.js'
 import { askInChat } from './ui/nav.js'
 
 // ---------------------------------------------------------------- حالت
@@ -184,7 +184,7 @@ export function probeSummary() {
       .replace('{1}', probe.via || 'Aether')
   }
   if (probe.state === 'FAILED') {
-    return t('Not working: {0}').replace('{0}', probe.message || '')
+    return t('Not working: {0}').replace('{0}', probe.message ? tAiError(probe.message) : '')
   }
   return t('Checks the key and lists the models it may use')
 }
@@ -289,7 +289,7 @@ async function openExplain(anchor, topic) {
   } catch (e) {
     if (openBubble !== bubble) return
     body.className = 'aibubble__body is-error'
-    body.textContent = String(e)
+    body.textContent = tAiError(e)
   }
 }
 

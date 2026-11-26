@@ -25,7 +25,7 @@ import { createPresetSelector } from '../ui/presets.js'
 import { startAetherMark } from '../ui/aethermark.js'
 import { homeAnimationsEnabled, onHomeAnimationsChange } from '../ui/feedback.js'
 
-const BUSY_STATES = ['STARTING_ENGINE', 'CONNECTING', 'VERIFYING', 'RECONNECTING', 'DISCONNECTING']
+const BUSY_STATES = ['STARTING_ENGINE', 'CONNECTING', 'PROVING', 'RECONNECTING', 'DISCONNECTING']
 
 // همان دو آیکون متریالِ ConnectButton.kt — PowerSettingsNew / Autorenew.
 // حالت سوم (Bolt) حذف شد: جایش را AetherMark گرفت.
@@ -40,7 +40,7 @@ function titleFor(state) {
     DISCONNECTED: t('Disconnected'),
     STARTING_ENGINE: t('Starting engine…'),
     CONNECTING: t('Connecting…'),
-    VERIFYING: t('Verifying connection…'),
+    PROVING: t('Smart gate: waiting for real data…'),
     CONNECTED: t('Connected'),
     RECONNECTING: t('Reconnecting…'),
     DISCONNECTING: t('Disconnecting…'),
@@ -75,7 +75,7 @@ function captionFor(snapshot) {
     case 'DISCONNECTED': return t('Tap to connect securely')
     case 'CONNECTED': return t('Tap to disconnect')
     case 'FAILED': return t(snapshot.error || 'Something went wrong')
-    case 'VERIFYING': return t('Verifying connection…')
+    case 'PROVING': return t('Smart gate: waiting for real data…')
     default:
       if (typeof snapshot.torPercent === 'number') {
         return t('Reaching the Tor network… {p}%').replace('{p}', String(snapshot.torPercent))

@@ -2,12 +2,12 @@
 # بازرسی روی خودِ ZIP، از حالت استخراج‌شده — نه روی پوشهٔ کاری.
 # چیزی که تحویل می‌شود همین است، پس همین سنجیده می‌شود.
 #
-# استفاده:  bash scripts/verify-package.sh [path/to/Aether_Windows_V1.4.0.zip]
+# استفاده:  bash scripts/verify-package.sh [path/to/Aether_Windows_V1.5.0.zip]
 #   مسیرِ ZIP از آرگومانِ اول یا متغیرِ AETHER_ZIP می‌آید (پیش‌فرض:
-#   dist/Aether_Windows_V1.4.0.zip کنارِ ریشهٔ مخزن). پوشهٔ بالاییِ ZIP خودکار
+#   dist/Aether_Windows_V1.5.0.zip کنارِ ریشهٔ مخزن). پوشهٔ بالاییِ ZIP خودکار
 #   پیدا می‌شود؛ هیچ مسیرِ ثابتی از محیطِ دیگری فرض نمی‌شود.
 set -u
-EXPECT_VERSION="1.4.0"
+EXPECT_VERSION="1.5.0"
 EXPECT_CORE="2.4.0"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ZIP="${1:-${AETHER_ZIP:-$REPO_ROOT/dist/Aether_Windows_V${EXPECT_VERSION}.zip}}"
@@ -191,10 +191,11 @@ for f in README.md README.fa.md release-notes.md .github/release-notes.md; do
   fi
   have "$f" 'Aether Core 2.4.0' "$f: هستهٔ 2.4.0 را معرفی می‌کند"
 done
-have README.md "## What's new in 1.4.0" 'README.md: بخشِ ۱.۴.۰ هست'
-have README.fa.md 'تازه‌های نسخهٔ ویندوز ۱.۳.۰' 'README.fa.md: بخشِ ۱.۴.۰ هست'
-have release-notes.md '# Aether Desktop 1.4.0' 'release-notes.md: تیترِ ۱.۴.۰'
-have .github/release-notes.md '# Aether Desktop 1.4.0' '.github/release-notes.md: تیترِ ۱.۴.۰'
+have README.md "## What's new in 1.5.0" 'README.md: بخشِ ۱.۵.۰ هست'
+have README.fa.md 'تازه‌های نسخهٔ ویندوز ۱.۳.۰' 'README.fa.md: بخشِ ۱.۳.۰ هست'
+have README.fa.md 'تازه‌های نسخهٔ ویندوز ۱.۵.۰' 'README.fa.md: بخشِ ۱.۵.۰ هست'
+have release-notes.md '# Aether Desktop 1.5.0' 'release-notes.md: تیترِ ۱.۵.۰'
+have .github/release-notes.md '# Aether Desktop 1.5.0' '.github/release-notes.md: تیترِ ۱.۵.۰'
 have release-notes.md 'Tor → Psiphon' 'release-notes: رفعِ برچسبِ SMART نوشته شده'
 # هیچ سندی نباید نسخهٔ ۱.۲.۵ را «نسخهٔ فعلی» معرفی کند.
 if grep -qE '^# Aether Desktop 1\.2\.5' README.md release-notes.md .github/release-notes.md; then
@@ -484,7 +485,7 @@ sys.exit(0 if max(rung - reserve, floor) >= turbo else 1)
 PY
 
 echo "── مورد ۱۴ (۱.۴.۰): هستهٔ Aether 2.4.0 و overlay ثبت‌شده و هویتِ موتور"
-[ "$(tr -d '\r\n' < PATCHLEVEL)" = "1.4.0" ] && ok "PATCHLEVEL = 1.4.0" || bad "PATCHLEVEL = $(cat PATCHLEVEL 2>/dev/null)"
+[ "$(tr -d '\r\n' < PATCHLEVEL)" = "1.5.0" ] && ok "PATCHLEVEL = 1.5.0" || bad "PATCHLEVEL = $(cat PATCHLEVEL 2>/dev/null)"
 if python3 scripts/check-core-pristine.py >/dev/null 2>&1; then
   ok "core: baseline + reviewed hash-locked mobile overlay"
 else bad "core: native/aether با مانیفستِ آپ‌استریم نمی‌خواند"; fi

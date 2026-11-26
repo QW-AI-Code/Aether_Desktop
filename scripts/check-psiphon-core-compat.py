@@ -22,7 +22,7 @@ def require(ok, why):
 
 require(read('CORE_VERSION').strip() == read('native/aether/CORE_VERSION').strip() == '2.4.0', 'both engine version files are 2.4.0')
 require(re.search(r'^version\s*=\s*"2\.4\.0"', read('native/aether/aether/Cargo.toml'), re.M), 'vendored engine Cargo version is 2.4.0')
-require(json.loads(read('package.json'))['version'] == json.loads(read('src-tauri/tauri.conf.json'))['version'] == '1.4.0', 'desktop version stays 1.4.0')
+require(json.loads(read('package.json'))['version'] == json.loads(read('src-tauri/tauri.conf.json'))['version'] == '1.5.0', 'desktop version stays 1.5.0')
 workflow = read('.github/workflows/build.yml')
 script = read('scripts/build-psiphon.ps1')
 engine = read('src-tauri/src/engine.rs')

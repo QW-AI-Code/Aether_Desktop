@@ -21,6 +21,12 @@
       "ported_sha256": "4b9958c94cff36078cdd2996cbaa7c44e392b6dfb42b14524cb668f7f5e6c2d1"
     },
     {
+      "path": "aether/src/config.rs",
+      "upstream_sha256": "287d64f4be4a516a0d3f65dc7d9769cc8fcb69a59749515ef654be849d607180",
+      "mobile_sha256": "8a32a6129b33dffc21c5a25e74f2bd08c4448fc94458db756dbee32375dd55c0",
+      "ported_sha256": "8a32a6129b33dffc21c5a25e74f2bd08c4448fc94458db756dbee32375dd55c0"
+    },
+    {
       "path": "aether/src/lib.rs",
       "upstream_sha256": "f32943f536b02dc37de20d8c3e0e387de3792f1a8c485a1a12d1016a772c3baf",
       "mobile_sha256": "f64dd8a05efab5e1eb9183c96f2057e8f74bef66e3e0f2670d681e4d1f425fa4",

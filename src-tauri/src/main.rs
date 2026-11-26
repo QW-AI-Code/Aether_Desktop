@@ -29,6 +29,10 @@ mod diagnostics;
 mod engine;
 mod exit_regions;
 mod filedrop;
+mod openfile;
+mod pingstats;
+mod apps;
+mod diagreport;
 // >>> AETHER-APP-PATCH endpoint-is-the-first-hop
 mod firsthop;
 // >>> AETHER-APP-PATCH the-flag-is-already-on-disk
@@ -51,6 +55,7 @@ mod probe;
 mod procguard;
 mod profile;
 mod provenance;
+mod readiness;
 pub mod presets;
 mod savedialog;
 mod pt;
@@ -277,7 +282,7 @@ async fn preset_export_save(window: tauri::WebviewWindow, app: State<'_, AppStat
     let text=preset_export(app)?;
     let owner=window.hwnd().map(|h|h.0 as isize).unwrap_or(0);
     tauri::async_runtime::spawn_blocking(move || {
-        let Some(path)=savedialog::pick_save_path(owner,"Aether-1.4.0-profile.json")? else { return Ok(None) };
+        let Some(path)=savedialog::pick_save_path(owner,"Aether-1.5.0-profile.json")? else { return Ok(None) };
         std::fs::write(&path,text.as_bytes()).map_err(|e|format!("Could not save the file: {e}"))?;
         Ok(path.file_name().map(|n|n.to_string_lossy().into_owned()))
     }).await.map_err(|e|e.to_string())?
@@ -513,6 +518,16 @@ const NEWS_LAST_LAUNCHED_KEY: &str = "news.last_launched";
 /// نسخه‌ای که کاربر برایش «دیگر این پیام را نمایش نده» را زد.
 const NEWS_SUPPRESSED_KEY: &str = "news.suppressed";
 
+/// 1.5.0 (same version): content revision of this version's notice. The app
+/// version must not change, but the notice gained the Smart brain, the smart
+/// connection gate and the chain-diagram fix; a new revision shows it once more,
+/// also to users who ticked «دیگر این پیام را نمایش نده» for the first text.
+const NEWS_REVISION: &str = " r3";
+
+fn news_version() -> String {
+    format!("{}{}", env!("CARGO_PKG_VERSION"), NEWS_REVISION)
+}
+
 /// وضعیتِ پنجرهٔ «تازه‌ها» (What's New).
 ///
 /// به همان دلیلِ `get_ui_lang` روی دیسکِ خودِ برنامه می‌ماند و نه فقط در
@@ -528,7 +543,7 @@ fn news_state(app: AppHandle) -> serde_json::Value {
         .map(|dir| store::PrefsStore::new(&dir));
     let read = |key: &str| prefs.as_ref().and_then(|p| p.get_string(key));
     serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": news_version(),
         "lastLaunched": read(NEWS_LAST_LAUNCHED_KEY),
         "suppressed": read(NEWS_SUPPRESSED_KEY),
     })
@@ -541,7 +556,8 @@ fn news_mark(app: AppHandle, suppress: bool) -> Result<(), String> {
     let dir = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let prefs = store::PrefsStore::new(&dir);
-    let version = env!("CARGO_PKG_VERSION");
+    let version = news_version();
+    let version = version.as_str();
     prefs
         .set_string(NEWS_LAST_LAUNCHED_KEY, version)
         .map_err(|e| e.to_string())?;
@@ -1320,14 +1336,28 @@ fn current_rect(win: &tauri::WebviewWindow) -> Option<window::Rect> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             // Equivalent of launchMode=singleTask in the Android manifest.
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.set_focus();
             }
+            // 1.5.0 (same version): "Open with → Aether" / double-click while
+            // Aether is already running. argv[0] is the program itself.
+            let cwd = std::path::PathBuf::from(cwd);
+            let files = openfile::config_paths(argv.into_iter().skip(1), Some(cwd.as_path()));
+            if openfile::queue(files) {
+                let _ = app.emit(openfile::EVENT, ());
+            }
         }))
         .setup(|app| {
+            // 1.5.0 (same version): the file this launch was asked to open
+            // (double-click / "Open with"). The UI takes it once it is ready.
+            let cwd = std::env::current_dir().ok();
+            openfile::queue(openfile::config_paths(
+                std::env::args_os().skip(1).map(|a| a.to_string_lossy().into_owned()),
+                cwd.as_deref(),
+            ));
             let data_dir = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             log::DiagnosticsLog::init(&data_dir);
@@ -1435,6 +1465,11 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             startup_ready,
+            openfile::take_open_files,
+            pingstats::ping_stats,
+            pingstats::ping_burst,
+            apps::app_connections,
+            diagreport::diagnostics_report,
             preset_state,
             preset_action,
             preset_export,

@@ -389,7 +389,7 @@ jobs:
       - name: Upload UI/UX evidence (web renderer with test IPC)
         uses: actions/upload-artifact@v4
         with:
-          name: Aether-UIUX-1.4.0-Web-QA
+          name: Aether-UIUX-1.5.0-Web-QA
           path: validation/uiux140/
           retention-days: 1
 
@@ -655,6 +655,21 @@ jobs:
           fi
           echo "level=$level" >> "$GITHUB_OUTPUT"
           echo "==> app patch level: $level"
+
+      # >>> AETHER-APP-PATCH engine-dependency-floors (1.5.0, port of mobile 1.7.0)
+      # کفِ امنیتیِ وابستگی‌های قفل‌شدهٔ هسته (quinn-proto 0.11.19، quinn-udp 0.5.16،
+      # url 2.5.9، cookie 0.18.3). فقط کپیِ کاریِ همین جاب عوض می‌شود — چکِ
+      # pristineِ هسته پیش‌تر در جابِ preflight روی نسخهٔ مخزن اجرا شده است — و
+      # build-engine.ps1 با `--locked` همان قفلِ به‌روزشده را می‌سازد.
+      - name: Engine dependency security floors
+        shell: bash
+        env:
+          PYTHONUTF8: '1'
+          PYTHONIOENCODING: utf-8
+        run: |
+          PY=$(command -v python3 || command -v python)
+          "$PY" scripts/patch-engine-dependencies.py native/aether/aether
+      # <<< AETHER-APP-PATCH engine-dependency-floors (1.5.0)
 
       - name: Build engine (aether.exe)
         shell: pwsh

@@ -65,6 +65,13 @@ pub(super) struct CustomRun {
     auto_next: Option<Instant>,
     auto_slot: Option<crate::custom::realdelay::ProbeTask> ,
     auto_basis: Option<crate::custom::store::State>,
+    /// 1.5.0 (same version): network signature seen when this run started and
+    /// when it was last compared (`netdns::signature`).
+    net_sig: Option<String>,
+    net_check: Option<Instant>,
+    /// The pending background run was triggered by a network change: apply its
+    /// result with the eager threshold.
+    auto_eager: bool,
 }
 
 impl CustomRun {
@@ -125,9 +132,9 @@ pub(super) fn custom_upstream_plan(profile: &ConnectionProfile) -> Vec<Candidate
     let mut plan=Vec::new();
     if full.scan_mode!=ScanMode::Turbo {
         let mut fast=full.clone();fast.scan_mode=ScanMode::Turbo;
-        plan.push(Candidate{profile:fast,timeout_ms:75_000,label:"Custom upstream TURBO".into()});
+        plan.push(Candidate{profile:fast,timeout_ms:75_000,label:"Custom upstream TURBO".into(),tactic:None});
     }
-    plan.push(Candidate{profile:full,timeout_ms:budget,label:"Custom upstream full budget".into()});plan
+    plan.push(Candidate{profile:full,timeout_ms:budget,label:"Custom upstream full budget".into(),tactic:None});plan
 }
 
 impl AetherController {
@@ -203,6 +210,8 @@ impl AetherController {
     /// در-حافظه را جایگزین می‌کند. خاموش = هیچ کاری.
     pub(super) fn custom_begin(&mut self) -> Result<()> {
         self.custom_end();
+        // A "Test all" from before this connect is already in the cache below.
+        let _ = crate::custom::selection::take_manual_run();
         if self.profile.custom_auto_select {
             let snapshot=crate::custom::store::snapshot();
             if snapshot.enabled {if let Some(id)=crate::custom::selection::cached_choice(&snapshot){crate::custom::store::update(|s|s.select(&id));}}
@@ -259,7 +268,7 @@ impl AetherController {
             next_monitor: None,
             trace_id: crate::custom::now_millis() as u64,
             trace_started: Instant::now(),
-            auto_next: None,auto_slot:None,auto_basis:None,
+            auto_next: None,auto_slot:None,auto_basis:None,net_sig:None,net_check:None,auto_eager:true,
         };
         // Xray که مستقیم بیرون می‌رود ممکن است سرورش روی پورتِ STUN یا IPv6
         // باشد؛ قاعدهٔ سیستم‌گسترده آن را هم می‌بست. همان باریک‌سازیِ تور.
@@ -378,9 +387,9 @@ impl AetherController {
                     "tor.exe rides this config: its relay ClientHello is split across TLS records so the server's sniffer cannot swap the relay's address for Tor's made-up SNI.",
                 );
             }
-            crate::custom::xray::build_for_tor(&run.sel.config.outbound, run.port, &[], "warning")
+            crate::custom::xray::build_for_tor(&run.sel.config.outbound, run.port, &crate::custom::netdns::network_dns(), "warning")
         } else {
-            crate::custom::xray::build_chain(&run.sel.config.outbound, run.port, dial_via, &[], "warning", mux)
+            crate::custom::xray::build_chain(&run.sel.config.outbound, run.port, dial_via, &crate::custom::netdns::network_dns(), "warning", mux)
         }
         .map_err(|e| format!("the custom config could not be turned into an Xray config: {e}"))?;
         let tag = format!("{}", run.port);
@@ -444,6 +453,7 @@ impl AetherController {
             profile: data,
             timeout_ms: CHAIN_BUDGET_MS,
             label: "Psiphon (custom chain)".into(),
+            tactic: None,
         }];
         self.plan_index = 0;
         self.effective_protocol = None;
@@ -508,7 +518,7 @@ impl AetherController {
         if !self.bring_up_data_path() {
             return;
         }
-        self.begin_verification();
+        self.begin_smart_gate();
     }
 
     /// LAST: خروجیِ موتور آماده است. به‌جای بالا آوردنِ مسیرِ داده، Xray را
@@ -582,10 +592,9 @@ impl AetherController {
                         }
                         None => Next::Wait,
                     }
-                } else if ready && !self.profile.custom_verify_connection {
-                    run.phase=Phase::Running;run.healthy_since=Some(Instant::now());
-                    Next::FrontUp{port:run.port,solo:run.base().is_none()}
                 } else if ready {
+                    // 1.5.0 (same version): the custom front is always proven by a
+                    // real request through it (smart gate) - no switch skips it.
                     Next::StartReach(run.port)
                 } else if elapsed > xproc::XRAY_START_TIMEOUT {
                     Next::Fail("The custom config did not open its local port in time (Xray). Check the config, or open the diagnostics log.")
@@ -613,7 +622,7 @@ impl AetherController {
                 if let Some(run) = self.custom.as_mut() {
                     run.reach = Some(slot.clone());
                 }
-                self.set_state(ConnectionState::Connecting, "Checking the custom config…");
+                self.set_state(ConnectionState::Connecting, "Smart gate: proving the custom config…");
                 std::thread::Builder::new()
                     .name("aether-custom-reach".into())
                     .spawn(move || {
@@ -646,7 +655,7 @@ impl AetherController {
                 if !self.bring_up_data_path() {
                     return true;
                 }
-                self.begin_verification();
+                self.begin_smart_gate();
             }
         }
         true
@@ -757,14 +766,50 @@ impl AetherController {
             run.auto_next=None;
             return false;
         }
+        // 1.5.0 (same version): Wi-Fi <-> Ethernet, another Wi-Fi or a hotspot ->
+        // measure again right away instead of waiting for the next health check.
+        let now=Instant::now();
+        if run.net_check.map(|t|now>=t).unwrap_or(true) {
+            run.net_check=Some(now+Duration::from_secs(5));
+            let sig=crate::custom::netdns::signature();
+            match run.net_sig.as_ref() {
+                None=>run.net_sig=Some(sig),
+                Some(old) if *old!=sig=>{
+                    run.net_sig=Some(sig);
+                    DiagnosticsLog::i(CTAG,"Network changed — measuring the configs again for auto-select.");
+                    if run.auto_slot.take().is_some(){run.auto_basis=None;}
+                    run.auto_next=None;
+                    run.auto_eager=true;
+                }
+                _=>{}
+            }
+        }
+        // 1.5.0 (same version): the user pressed "Test all" -> switch to the fastest now.
+        if crate::custom::selection::take_manual_run() {
+            let snapshot=crate::custom::store::snapshot();
+            if snapshot.active_id.as_deref()==Some(&run.sel.config.id) {
+                if let Some(id)=crate::custom::selection::cached_choice_eager(&snapshot) {
+                    if id!=run.sel.config.id {
+                        self.custom_trace("auto_select","manual Test all: switching to the fastest config");
+                        crate::custom::store::update(|s|s.select(&id));
+                        self.cleanup_native(true);self.custom_end();self.connected_at=None;
+                        self.reconnect_at=Some(Instant::now()+Duration::from_secs(1));
+                        self.set_state(ConnectionState::Reconnecting,"Switching to the fastest config…");return true;
+                    }
+                }
+            }
+        }
+        let Some(run)=self.custom.as_mut()else{return false;};
         let result=run.auto_slot.as_mut().and_then(|task|task.poll());
         if let Some(rows)=result {
             run.auto_slot=None;
+            let eager=std::mem::replace(&mut run.auto_eager,false);
             let snapshot=crate::custom::store::snapshot();
             if run.auto_basis.take().as_ref()!=Some(&snapshot){run.auto_next=None;return false;}
             crate::custom::selection::record(&rows);
             if snapshot.active_id.as_deref()!=Some(&run.sel.config.id){return false;}
-            if let Some(id)=crate::custom::selection::cached_choice(&snapshot){
+            let pick=if eager {crate::custom::selection::cached_choice_eager(&snapshot)} else {crate::custom::selection::cached_choice(&snapshot)};
+            if let Some(id)=pick{
                 if id!=run.sel.config.id {
                     self.custom_trace("auto_select","fresh group candidate exceeds 50ms/20% hysteresis");
                     crate::custom::store::update(|s|s.select(&id));

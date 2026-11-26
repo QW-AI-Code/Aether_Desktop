@@ -9,7 +9,7 @@
 
 import { ai, onAiChange, gateMessage, probeSummary, setApiKey, selectModel, refreshModels, testKey, runAdvisor, dismissAdvisor } from '../ai.js'
 import { goToTab } from '../ui/nav.js'
-import { t } from '../i18n.js'
+import { t, tAiError } from '../i18n.js'
 import { toast } from '../ui/toast.js'
 
 const KEY_URL = 'https://aistudio.google.com/apikey'
@@ -120,7 +120,7 @@ function keySection() {
       // کاربر یک خطای شبکه می‌گیرد برای کاری که خودش نخواسته بود.
       if (ai.gateCode === 'NO_MODEL' || ai.gateCode === 'READY') await refreshModels()
     } catch (e) {
-      state.textContent = String(e)
+      state.textContent = tAiError(e)
     } finally {
       save.disabled = false
     }
@@ -277,7 +277,7 @@ function advisorSection() {
     try {
       await runAdvisor()
     } catch (e) {
-      result.replaceChildren(line('is-error', String(e)))
+      result.replaceChildren(line('is-error', tAiError(e)))
     } finally {
       run.disabled = false
     }

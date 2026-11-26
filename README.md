@@ -1,6 +1,109 @@
-# Current release: Aether Desktop 1.4.0
+# Current release: Aether Desktop 1.5.0
 
-Core: 2.4.0. Portable mobile networking changes: 1.6.0. Read `release-notes.md` and `docs/PORT_1.4.0_REPORT.fa.md` for features, exclusions and actual validation. NPVS supports authenticated v5 app-key/password exports; device-bound/attested exports are rejected. This source includes a reviewed core overlay; old pristine-core descriptions below are historical, not the current release status.
+Core: 2.4.0. Ported from Aether Mobile **1.7.0** (connection reliability and the new Smart mode). Read [`release-notes.md`](release-notes.md) and [`docs/PORT_1.5.0_REPORT.fa.md`](docs/PORT_1.5.0_REPORT.fa.md) for what changed, why, and what was actually validated. NPVS supports authenticated v5 app-key/password exports; device-bound/attested exports are rejected. This source includes a reviewed core overlay; old pristine-core descriptions below are historical, not the current release status.
+
+## What's new in 1.5.0
+
+App version **1.5.0**, engine core **2.4.0**, ported from Aether Mobile **1.7.0**. This release is about one
+thing: **connecting reliably, first time, without touching a setting** - especially in Tehran, where only
+MASQUE gets through.
+
+**Same-version update: Smart anti-DPI brain, smart connection gate, chain diagram (1.5.0)**
+
+- **Slow "Aether only" connects - root cause fixed:** the Smart race lane that proved a route was
+  killed (TerminateProcess) and the confirming session started 0.3 s later on the *same* WARP device
+  identity; Cloudflare still held the lane's session, so the confirm got `connect-ip status 400` or carried
+  no return traffic, failed its gate after 45 s and fell through to a full rescan. Race lanes now run on
+  their own identity (`aether-race*.toml`) and the session starts from the gateway the race proved
+  (`adopt_race_gateways`). Quality window 2.5 s and route measurement 4.5 s, as on mobile.
+- The speed-test button of a custom config uses the same speedometer icon as the mobile app.
+- **The custom-config verification switch is gone too:** the profile fields were removed, the state
+  `VERIFYING` is now `PROVING` ("Smart gate: waiting for real data…"), custom configs are always proven, and
+  both pages show the "Smart connection gate" card. Security audit of this release: **85/100**
+  (see `release-notes.md`).
+- **Smart brain (`src-tauri/src/smart_plus/brain.rs`).** Every engine line is tagged with what it says about
+  the network (`readiness::signals_of`: UDP silence, TLS reset, empty scan, blocked account API, damaged
+  identity, missing ECH key). After each failed tactic the brain diagnoses why, both race lanes share what
+  they learned (`brain::Board`) and the tactics still to come are re-planned (`scheduler::run_adaptive`):
+  TCP carriers ahead of UDP ones once UDP is dropped, TLS fragmentation and a stronger obfuscation floor
+  once TLS is interfered with, the GFW disguise for WireGuard once its gateways stay silent, hopeless UDP
+  rungs abandoned after 7 s, equivalent tactics never tried twice. The serial Smart ladder and the
+  last-resort rungs adapt the same way (`smart_auto::adapt_ladder`). No setting is needed.
+- **"Verify connection" removed - replaced by the always-on smart gate.** The old self-test waited for the
+  HTTPS geolocation answer for the whole grace window, so a working MASQUE tunnel was thrown away, and with
+  the switch off nothing proved anything. Now an HTTP request through the tunnel whose answer comes back is
+  the proof (never a bare SOCKS5 reply); the exit IP is still looked up, briefly before and again after
+  Connected. The WebRTC leak check is unchanged. Custom configs pass the same smart gate - their switch was removed too, and an information card replaces it.
+- **Damaged engine identity no longer stops every start.** The core (`config.rs`, reviewed overlay record in
+  `CORE_PORT_PATCHES.json`) quarantines an identity file that is not UTF-8 and provisions a fresh one instead
+  of exiting with `stream did not contain valid UTF-8`; the app also sets such a file aside
+  (`AetherProcess::heal_damaged_identity`) and retries the same strategy.
+- **3-node chain diagram fits the default window.** The diagram is measured in layout pixels, its font
+  shrinks to the width it has and, if fixed-size parts still overflow, the whole row is scaled down - it is
+  never cut on either side at the default 390 px width (`src/ui/fit.js`).
+- What's new dialog: new bullets, notice revision `r3` (shown once more). Version stays 1.5.0.
+
+**Root cause of the connection failures (fixed)**
+
+- **The engine was killed while it was still working.** The engine binds its local SOCKS5 port the moment it
+  starts and only *serves* it once a tunnel is validated. The app took the open port (≈0.3 s after launch) for a
+  ready engine and gave every attempt a single 4-second SOCKS5 handshake. Verifying a cached MASQUE gateway alone
+  takes 2-3.5 s on Iranian links, a fresh scan much longer - so MASQUE failed "sometimes" and every scan failed always.
+- **New readiness gate:** the app now waits - for the attempt's whole budget - until the engine itself reports that
+  it serves SOCKS5 and a real handshake succeeds, and stops waiting the instant the engine exits. This applies to
+  manual protocols, Smart mode, chained stage 1 and engine restarts by the watchdog.
+
+**Smart mode, rewritten: a fair race and the best route, not the first one**
+
+- **Fair start:** WARP (WireGuard) and MASQUE start **at the same instant** with the **same per-tactic budgets**
+  (light 20 s, hardened 25 s, two-hop 40 s). 1.4.0 started WireGuard first, MASQUE 7 s later, after a serial 45 s
+  remembered-route slot.
+- **Light to heavy:** bare WireGuard and MASQUE over HTTP/3 or HTTP/2 first; Noize obfuscation, TLS-fragmented
+  HTTP/2, then the two-hop Gool and MASQUE×2 only when needed.
+- **Best route wins:** after the first route proves it carries traffic, the race runs 3.5 s longer so the other
+  lane can prove one too. Every proven route is measured through itself - latency, ≈384 KB download and 128 KB
+  upload over verified TLS - and ranked with an overhead factor per protocol. If the best one does not come up, the
+  next proven route is tried.
+- **HTTP/2 first where it matters:** MASQUE over HTTP/2 (TCP) leads on UDP-throttled networks and when a new QUIC
+  probe (a Version-Negotiation packet to the MASQUE gateways) gets no answer.
+- **Per-network memory** only re-orders a lane; failures are recorded per network. **Last resort** (deep
+  full-range scan of the two cleanest carriers) only when nothing proved itself.
+
+**Other fixes**
+
+- **ECH crash:** anti-DPI passes no longer switch ECH on by themselves (without a fetchable ECH key the engine
+  refuses to start). ECH is only ever your own choice.
+- **Identity clash:** core 2.4.0's Gool (WireGuard inside MASQUE) now races in the MASQUE lane.
+- **Wrong scan ranges:** MASQUE and Gool scans are no longer narrowed to the ranges measured for WireGuard.
+- **Missing carrier:** MASQUE over HTTP/2 is part of every ladder now.
+- **Manual MASQUE:** as configured → MASQUE over HTTP/2 (TCP) → anti-DPI pass (HTTP/2 + TLS fragmentation + obfuscation).
+- **Engine dependencies:** security floors quinn-proto 0.11.19, quinn-udp 0.5.16, url 2.5.9, cookie 0.18.3.
+- **What's new dialog** shows the 1.5.0 list and keeps the *"If you cannot connect at all"* steps.
+
+**Same-version fixes (user reports)**
+
+- **NapsternetV configs ping and connect like on Android.** Configs that pinged and connected in Aether
+  Android but showed no ping and never connected on Windows had three causes: (1) Xray never got the
+  network's own DNS servers - a server given by name was resolved only through 1.1.1.1 / 8.8.8.8, which are
+  often blocked or slow in Iran; the new `custom/netdns.rs` reads the active adapters' resolvers and the
+  ping, speed test and session now use network → 1.1.1.1 → 8.8.8.8 → system, like Android; (2) the TLS
+  *allow insecure* switch of NapsternetV (`tlsAllowInsecure`) was ignored, so self-signed servers failed
+  verification; (3) `xhttpMode`, `xhttpExtra`, `seed` and `authority` were dropped. The real-delay round
+  is 12 s, as on Android.
+- **Open config files directly.** Double-click a `.npvt` / `.npvs` file, or right-click → *Open with* →
+  Aether: the file is imported (password prompt included), also when Aether is already open. The installer
+  registers both extensions and removes them on uninstall; with the portable ZIP use *Open with* → *Choose
+  another app* → `Aether.exe`.
+- **Same-version improvements.** Auto-select switches to the fastest server right after "Test all",
+  re-tests after a network change (Wi-Fi, Ethernet, hotspot - `custom/netdns.rs` network signature) and
+  applies the first full test after a connect with the eager 20 ms / 10 % threshold (the first connect
+  never waited for a full test on Windows). Every config has one-click ping, speed test and delete;
+  "Speed test all" and sort by ping, download or upload speed. The connection card is interactive:
+  latency details (min / max / average / jitter / packet loss, 10-probe burst - `pingstats.rs`), the
+  chain's nodes, and the programs using the tunnel right now (`apps.rs`, connections to the local
+  proxy). Settings → Connection starts with a unified chain builder (nodes, core per node, each node's
+  settings). "Send diagnostics" (`diagreport.rs`) copies a redacted report and opens a GitHub issue -
+  no server, no token, user-submitted, switch in Settings.
 
 ## What's new in 1.4.0
 
@@ -97,55 +200,8 @@ Ported from Aether for Android **1.5.0**. Settings → **Custom configs**. While
 
 ### Packaging
 
-Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives** plus `SHA256SUMS.txt`; no `.msi`. The version is **1.4.0** in every manifest, and the CI preflight checks this. Real tunnel and network behaviour still needs testing on Windows.
+Outputs are **x64/x86 `.exe` installers** and **x64/x86 portable `.zip` archives** plus `SHA256SUMS.txt`; no `.msi`. The version is **1.5.0** in every manifest, and the CI preflight checks this. Real tunnel and network behaviour still needs testing on Windows.
 
----
-
-<div dir="rtl" align="right">
-<h2 dir="rtl" align="right">تازه‌های نسخهٔ ویندوز ۱.۳.۰</h2>
-<p dir="rtl" align="right">نسخهٔ برنامه همچنان <bdi>1.4.0</bdi> است. این انتشار سه قابلیت را از <bdi>Aether</bdi> اندروید <bdi>1.5.0</bdi> به ویندوز می‌آورد — <strong>کانفیگ‌های سفارشی</strong>، <strong>ورود <bdi>Zero Trust</bdi></strong> و <strong>اشتراک بازطراحی‌شده روی شبکهٔ محلی</strong> — با همان رفتار و همان متن‌های گوشی، و هستهٔ <strong>دست‌نخوردهٔ <bdi>Aether Core 2.4.0</bdi></strong> را همراه دارد. حالت «هات‌اسپات گوشی» اندروید عمداً در نسخهٔ ویندوز <strong>نیست</strong>. پروفایل‌های ذخیره‌شده و بک‌اند انتخابی حفظ می‌شوند.</p>
-<h3 dir="rtl" align="right">کانفیگ‌های سفارشی: رفع زنجیره و پینگ (۱.۳.۰)</h3>
-<ul dir="rtl" align="right">
-<li><strong><span dir="ltr">Config → Psiphon</span> حالا واقعاً از کانفیگ رد می‌شود:</strong> سایفون بدون <bdi>upstream</bdi> اجرا می‌شد و مستقیم وصل می‌شد. حالا پورت <bdi>SOCKS</bdi> محلی کانفیگ (<bdi>AETHER_UPSTREAM</bdi>) به آن داده می‌شود و در لاگ <span dir="ltr">psiphon dials out through the upstream proxy</span> دیده می‌شود.</li>
-<li><strong>خطای <span dir="ltr">WSAEACCES (10013)</span> سایفون:</strong> در <span dir="ltr">Psiphon → Config</span> قانون‌های فایروال جامانده از اجرای قبلی پاک می‌شوند و فیلتر خروجی به هاپ سایفون/<bdi>xray</bdi> اجازه می‌دهد. اگر ویندوز باز هم دسترسی را رد کند، یک بار در لاگ نوشته می‌شود کدام قانون یا پروفایل (<bdi>BlockOutbound</bdi>) جلوی آن را گرفته است.</li>
-<li><strong>برچسب درست مسیر:</strong> لاگ زنجیرهٔ واقعی را نشان می‌دهد، مثلاً <span dir="ltr">Pipeline: Config → Psiphon (custom config chain)</span>.</li>
-<li><strong>هاپ‌های کند:</strong> زمان‌بندی <bdi>Xray</bdi> در زنجیره: دست‌دادن ۳۰ ثانیه، بیکاری ۱۸۰۰، <bdi>uplink</bdi> ۱۰ و <bdi>downlink</bdi> ۳۰ ثانیه. وقتی کانفیگ خروجیِ پشت تور/سایفون است <bdi>Mux</bdi> با ۸ جریان روشن می‌شود؛ برای <bdi>XTLS Vision</bdi>، <bdi>WireGuard</bdi> و <bdi>Hysteria</bdi> هرگز.</li>
-<li><strong>پینگ واقعی:</strong> هر کانفیگ دکمهٔ <strong>پینگ</strong> دارد و فهرست دکمهٔ <strong>تست همه</strong>. کانفیگ در یک <bdi>xray</bdi> موقت فقط روی loopback (با <bdi>SOCKS</bdi> رمزدار، تا ۳۲ کانفیگ در هر اجرا) اجرا و <bdi>generate_204</bdi> دریافت می‌شود. نتیجه: تأخیر به میلی‌ثانیه، یا <bdi>-1</bdi> با «بدون پاسخ»، «سرور خاموش»، «فیلتر شده»، «کانفیگ نامعتبر» یا «بدون شبکه».</li>
-<li><strong>پینگ عیب‌یابی:</strong> بررسی‌های <bdi>DoH/TLS</bdi> همیشه گواهی <strong>و</strong> نام میزبان را تأیید می‌کنند.</li>
-<li><strong>حریم خصوصی لاگ:</strong> نشانی سرور، نام میزبان، <bdi>IPv6</bdi> و <bdi>UUID</bdi> در خروجی <bdi>xray</bdi> پوشانده می‌شوند. اشتراک‌ها هنگام اتصال از داخل تونل دریافت می‌شوند.</li>
-<li><strong>چسباندن تمیز:</strong> نویسه‌های نامرئی (<bdi>RLM/LRM</bdi>، <bdi>BOM</bdi>، نشانه‌های جهت، فاصلهٔ نشکن) که تلگرام به لینک اضافه می‌کند هنگام چسباندن، وارد کردن و دریافت اشتراک حذف می‌شوند.</li>
-<li><strong>باقی‌ماندهٔ ۱.۲.۵:</strong> <span dir="ltr">scripts/clean-legacy-1.2.5.py</span> فایل‌های اضافی نسخهٔ ۱.۲.۵ را پاک می‌کند و <bdi>CI</bdi> آن را پیش از بررسی دست‌نخوردگی هسته اجرا می‌کند.</li>
-</ul>
-<h3 dir="rtl" align="right">ورود <bdi>Zero Trust</bdi> پیش از اتصال</h3>
-<ul dir="rtl" align="right">
-<li><strong>اول وارد شوید:</strong> در تنظیمات ← <bdi>Zero Trust</bdi> ← «کد ایمیلی»، دکمهٔ «ورود» پنجره‌ای باز می‌کند: کد به ایمیل فرستاده می‌شود، آن را وارد می‌کنید (سه بار فرصت)، پس از ۳۰ ثانیه «ارسال کد تازه» فعال می‌شود و هر مشکل (تیم یا ایمیل نادرست، کد اشتباه یا منقضی، نبود اینترنت) به زبان ساده توضیح داده می‌شود.</li>
-<li><strong>رمزشده و قابل مشاهده:</strong> ورود با <bdi>Windows DPAPI</bdi> رمز می‌شود، به تیم <strong>و</strong> ایمیل گره می‌خورد و پنل نشان می‌دهد هنوز معتبر است یا نه و تا کی. «فراموش کردن این ورود» آن را پاک می‌کند. توکن هرگز به رابط وب نمی‌رسد.</li>
-<li><strong>کد هنگام اتصال:</strong> اگر موتور وسط اتصال کد ایمیلی بخواهد، پنجره‌ای روی هر صفحه‌ای باز می‌شود. «حالا نه» همان تلاش اتصال را متوقف می‌کند و آن را معطل نمی‌گذارد.</li>
-<li><strong>عضویت:</strong> دستگاه عضوشده وضعیت عضویتش را می‌بیند و با «حذف عضویت این دستگاه» (با تأیید و فقط وقتی قطع است) آن را برمی‌دارد؛ اتصال بعدی دوباره عضو می‌شود.</li>
-<li><strong>توکن سرویس و توکن عضویت:</strong> در «توکن سرویس»، دکمهٔ «آزمایش توکن سرویس» همان مبادلهٔ موتور را بدون ذخیرهٔ چیزی اجرا می‌کند. «توکن دسترسی» (توکن عضویت) چسبانده‌شده همان لحظه بررسی می‌شود (خالی، نامعتبر، منقضی یا معتبر با زمان باقی‌مانده).</li>
-</ul>
-<h3 dir="rtl" align="right">اشتراک <bdi>VPN</bdi> روی شبکهٔ محلی</h3>
-<ul dir="rtl" align="right">
-<li><strong>صفحهٔ «اشتراک» بازطراحی شد:</strong> وضعیت زنده («خاموش»، «در انتظار شبکه»، «آماده»، «پورت اشغال است»)، کلید «اشتراک‌گذاری در این شبکه»، نشان «بدون نشتی»، ردیف‌های قابل کپی <bdi>SOCKS5 10810</bdi>، <bdi>HTTP 10811</bdi> و آدرس، نشانی‌های دیگر رایانه، «کپی همهٔ مشخصات»، مراحل راه‌اندازی و نشانی بررسی.</li>
-<li><strong>همهٔ آداپتورهای واقعی:</strong> اشتراک روی همهٔ نشانی‌های <bdi>Wi‑Fi</bdi> و <bdi>Ethernet</bdi> رایانه گوش می‌دهد (آداپتورهای مجازی و <bdi>Wi‑Fi Direct</bdi> کنار گذاشته می‌شوند) و هنگام اتصال، تغییر شبکه را دنبال می‌کند.</li>
-<li><strong>نام کاربری و رمز اختیاری:</strong> مثل اندروید، به‌طور پیش‌فرض خاموش است. وقتی روشن باشد، <bdi>SOCKS5</bdi> (<bdi>RFC 1929</bdi>) و پراکسی <bdi>HTTP</bdi> (<bdi>Basic</bdi>) آن را می‌خواهند. رمزی قوی ساخته می‌شود؛ می‌توانید نام کاربری و رمز دلخواه (دست‌کم ۸ نویسه) بگذارید یا با «ساخت رمز جدید» آن را عوض کنید. هر دو با <bdi>DPAPI</bdi> رمز می‌شوند و هرگز در صفحه‌های اشتراک نمایش داده نمی‌شوند.</li>
-<li><strong><bdi>http://aether.check/</bdi> از هر مسیر:</strong> دستگاه مهمان از راه پراکسی <bdi>HTTP</bdi>، <bdi>SOCKS5</bdi> یا فایل <bdi>PAC</bdi> با باز کردن این نشانی می‌بیند محافظت می‌شود یا نه، از کدام مسیر وصل است و آی‌پی خروجی تونل چیست.</li>
-<li><strong>صفحهٔ راه‌اندازی:</strong> نشانی <bdi>http://&lt;نشانی رایانه&gt;:10811/</bdi> راهنمای دوزبانه (فارسی و انگلیسی)، فایل <bdi>PAC</bdi> (<bdi>/proxy.pac</bdi> و <bdi>/wpad.dat</bdi>)، آزمون زندهٔ نشت <bdi>WebRTC</bdi> و قفل‌های یک‌کلیکی <bdi>WebRTC</bdi> برای <bdi>Windows</bdi>، <bdi>Firefox</bdi>، <bdi>macOS</bdi> و <bdi>Linux</bdi> را دارد. این صفحه‌ها هیچ چیزی از اینترنت بارگذاری نمی‌کنند.</li>
-<li><strong>نگهبان بدون نشتی:</strong> دستگاه‌های مهمان به نشانی‌های خصوصی یا محلی شبکهٔ میزبان دسترسی ندارند، هیچ قاعدهٔ «مستقیم» (بای‌پس) نمی‌گیرند، سرآیندهای شناسایی‌کنندهٔ پراکسی حذف می‌شوند و <bdi>UDP</bdi> از راه <bdi>SOCKS5</bdi> فقط وقتی ارائه می‌شود که موتور بتواند آن را حمل کند.</li>
-</ul>
-<h3 dir="rtl" align="right">هسته، مسیریابی و تنظیمات (از پیش در ۱.۳.۰)</h3>
-<ul dir="rtl" align="right">
-<li><strong>هستهٔ دست‌نخوردهٔ <bdi>Aether Core 2.4.0</bdi>:</strong> همهٔ حالت‌های تور از <bdi>tor.exe</bdi> همراه برنامه استفاده می‌کنند و کاشی پروتکل به‌جای <bdi>SMART</bdi> عنوان <bdi>Tor → Psiphon</bdi> را نشان می‌دهد. فرزند سایفون از کامیت سازگار <bdi>CluvexStudio</bdi> ساخته می‌شود و سرورهای همراه را از راه <bdi>AETHER_PSIPHON_SERVER_ENTRIES</bdi> می‌گیرد.</li>
-<li><strong><bdi>DNS</bdi> و مسیریابی:</strong> «بای‌پس سایت‌های ایرانی» و «حذف تبلیغات و ردیاب‌ها» دو کلید اختیاری و مستقل‌اند، با فهرست‌های همراه و به‌روزرسانی هفتگی از داخل تونل. دامنه‌های ایرانیِ غیر از <bdi>.ir</bdi> پیش از مستقیم شدن با <bdi>DNS-over-HTTPS</bdi> از داخل تونل بررسی می‌شوند. در <bdi>Aether → Psiphon</bdi> و <bdi>Tor → Psiphon</bdi> قواعد در پل محلی اعمال می‌شوند.</li>
-<li><strong>سروری که کار می‌کند دیگر دور ریخته نمی‌شود:</strong> برنامه به موتور می‌گفت سرورِ به‌خاطرسپرده را فقط در صورتی دوباره استفاده کن که سریع‌تر از حدود <strong>۳۰۰ میلی‌ثانیه</strong> جواب بدهد — و در شبکه‌هایی که واقعاً از آن‌ها گزارش رسیده، هیچ چیزی این‌قدر سریع جواب نمی‌دهد. پس سرورِ به‌خاطرسپرده هر بار دور ریخته می‌شد و هر اتصال مجدد هزینهٔ یک جست‌وجوی کامل را می‌پرداخت. آن بررسی حالا <strong>به‌طور پیش‌فرض خاموش</strong> است، پس سرورِ به‌خاطرسپرده‌ای که جواب می‌دهد، همان‌طور که موتور همیشه خودش عمل می‌کرد، استفاده می‌شود. اگر روی اتصال سریعی هستید و می‌خواهید برنامه دنبال بهترین سرور بگردد، سوئیچ «فقط اندپوینت سریع را دوباره استفاده کن» هنوز زیر «ترابرد و ضد <bdi>DPI</bdi>» هست — با حدودی که این بار با شبکه‌های واقعی می‌خواند (<bdi>2000/5000</bdi> میلی‌ثانیه مستقیم و <bdi>1200/3500</bdi> میلی‌ثانیه زنجیره‌ای).</li>
-<li><strong>تنظیم <bdi>ECH</bdi> خودتان:</strong> اگر یک <bdi>ECHConfigList</bdi> دارید، می‌توانید زیر «ترابرد و ضد <bdi>DPI</bdi>» بچسبانیدش به‌جای اینکه برنامه خودش یکی بگیرد — جایی به کار می‌آید که شبکه‌تان دقیقاً همان گرفتنِ پیش‌فرض را بلاک می‌کند. نشانه‌گرفتن <bdi>ECH</bdi> به یک دامنهٔ دیگر، آن‌طور که <bdi>v2rayNG</bdi> می‌کند، ممکن نیست: موتور در آن‌جا دامنه نمی‌پذیرد.</li>
-<li><strong><bdi>MTU</bdi> دلخواه</strong> در بازهٔ <strong>۱۲۸۰ تا ۹۰۰۰</strong>.</li>
-<li><strong>هوش مصنوعی و ظاهر:</strong> مدل پیش‌فرض در صورت دسترسی <bdi>Gemini 3.1 Flash-Lite</bdi> است و سقف توکن فقط وقتی نمایش داده می‌شود که گوگل اعلامش کند. کارت اتصال وضعیت، آی‌پی، زمان و ترافیک را یک‌جا نشان می‌دهد و تنظیمات کارت‌های گروه‌بندی‌شده و کاشی‌های افقی دارند.</li>
-<li><strong>حفظ بک‌اند انتخابی:</strong> <bdi>Aether</bdi> فقط پیش‌فرض پروفایل تازه است و بستن و باز کردن برنامه انتخاب کاربر را عوض نمی‌کند.</li>
-</ul>
-<h3 dir="rtl" align="right">بسته‌ها</h3>
-<p dir="rtl" align="right">خروجی‌ها نصب‌کننده‌های <bdi>x64/x86</bdi> با پسوند <bdi>.exe</bdi> و بسته‌های پرتابل <bdi>.zip</bdi> به‌همراه <bdi>SHA256SUMS.txt</bdi> هستند؛ فایل <bdi>.msi</bdi> وجود ندارد. نسخه در همهٔ فایل‌های مشخصات <bdi>1.4.0</bdi> است و پیش‌بررسی <bdi>CI</bdi> این را کنترل می‌کند. رفتار واقعی تونل و شبکه همچنان باید روی ویندوز آزموده شود.</p>
-</div>
 
 
 <details>
@@ -480,7 +536,7 @@ Every feature of the Android edition is implemented here, with nothing left out.
 - Protocols: `Smart` (automatic pick — same name as the mobile edition) · `MASQUE` · `WireGuard` · `WARP×2`
 - Scan modes: Turbo · Balanced · Thorough · Stealth · Ironclad
 - IPv4, IPv6 or dual-stack
-- Smart automatic protocol fallback when a protocol fails
+- Smart mode: WireGuard and MASQUE are tested side by side, the ping and speed of every route that works are measured, the best one is connected and remembered per network
 - Automatic reconnect (capped at 5 attempts, exactly as on Android)
 - Live connection details: protocol, endpoint, latency, uptime
 - Traffic panel: live per-second download/upload rates plus session totals
@@ -568,10 +624,10 @@ All files are produced automatically by GitHub Actions and published to
 
 | File | Description |
 |---|---|
-| `Aether-Setup-1.4.0-x64.exe` | Windows 64-bit — graphical installer with uninstaller (recommended) |
-| `Aether-Setup-1.4.0-x86.exe` | Windows 32-bit — graphical installer with uninstaller |
-| `Aether-Portable-1.4.0-x64.zip` | Portable, no installation, 64-bit |
-| `Aether-Portable-1.4.0-x86.zip` | Portable, no installation, 32-bit |
+| `Aether-Setup-1.5.0-x64.exe` | Windows 64-bit — graphical installer with uninstaller (recommended) |
+| `Aether-Setup-1.5.0-x86.exe` | Windows 32-bit — graphical installer with uninstaller |
+| `Aether-Portable-1.5.0-x64.zip` | Portable, no installation, 64-bit |
+| `Aether-Portable-1.5.0-x86.zip` | Portable, no installation, 32-bit |
 | `SHA256SUMS.txt` | Checksums for verifying file integrity |
 
 **Requirements:** Windows 10 build 1809 (October 2018 Update) or newer.
@@ -633,7 +689,7 @@ See [SETUP.md](SETUP.md) for the step-by-step repository setup guide.
 
 ### Updating a repository that is still on 1.2.5
 
-Extract the ZIP, open the `Aether_Windows_V1.4.0` folder, select everything in it and copy it into the repository folder; when Explorer asks, choose **Replace the files in the destination**. Then **Commit** and **Push** in GitHub Desktop. Files of 1.2.5 that 1.4.0 no longer has (old scripts, old web bundles, `native/aether/quiche/fuzz` corpus folders, …) may stay in the repository: every CI job removes them first (`scripts/clean-legacy-1.2.5.py`), before any check or build. The five `quiche/fuzz/mayhem/*/testsuite` links of core 2.4.0 are left out of the ZIP on purpose: in 1.2.5 they are folders, and Explorer cannot put a file over a folder ("There is already a folder with the same name…"). They are fuzz-test links, unused by the build, and ignored by the core pristine check.
+Extract the ZIP, open the `Aether_Windows_V1.5.0` folder, select everything in it and copy it into the repository folder; when Explorer asks, choose **Replace the files in the destination**. Then **Commit** and **Push** in GitHub Desktop. Files of 1.2.5 that 1.4.0 no longer has (old scripts, old web bundles, `native/aether/quiche/fuzz` corpus folders, …) may stay in the repository: every CI job removes them first (`scripts/clean-legacy-1.2.5.py`), before any check or build. The five `quiche/fuzz/mayhem/*/testsuite` links of core 2.4.0 are left out of the ZIP on purpose: in 1.2.5 they are folders, and Explorer cannot put a file over a folder ("There is already a folder with the same name…"). They are fuzz-test links, unused by the build, and ignored by the core pristine check.
 
 ## Licence
 
@@ -661,32 +717,18 @@ To get the best result on Android or Windows:
 
 ---
 
-## 🔐 Security Audit Report
+## 🔐 Security Audit Report (historical, 1.3.0 hardening)
 
-### Security Score: 98/100
+The current 0-100 audit of this release (**85/100**, scored per area) is in [`release-notes.md`](release-notes.md). The table below is the earlier hardening round and is kept for reference.
 
----
-
-<div dir="rtl" align="right">
-<h3 dir="rtl" align="right">گزارش ممیزی امنیتی</h3>
-<table dir="rtl" align="right">
-<thead><tr><th align="right">شناسه</th><th align="right">عنوان</th><th align="right">شدت</th><th align="right">وضعیت</th><th align="right">توضیح</th></tr></thead>
-<tbody>
-<tr><td align="right"><bdi>S-01</bdi></td><td align="right">بررسی عدم دقیق باینری <bdi>Tor</bdi></td><td align="right">بالا</td><td align="right">✅ رفع شد</td><td align="right">باینری <bdi>Tor</bdi> و حامل انتقال فقط از نظر ابرداده مقایسه می‌شدند نه محتوا</td></tr>
-<tr><td align="right"><bdi>S-02</bdi></td><td align="right">دسترسی ناپذیر به تنظیمات حساسی</td><td align="right">بالا</td><td align="right">✅ رفع شد</td><td align="right">پچ <bdi>AI</bdi> می‌تواند تمام تنظیمات کاربر را تغییر دهد، حتی توکن و رمزها</td></tr>
-<tr><td align="right"><bdi>S-03</bdi></td><td align="right">افشای اطلاعات حساس</td><td align="right">متوسط</td><td align="right">✅ رفع شد</td><td align="right">نمایش رمزعبور و توکن اختیاری در تنظیمات سرور</td></tr>
-<tr><td align="right"><bdi>S-04</bdi></td><td align="right">آدرس <bdi>IPv6</bdi> بدون نرمال سازی</td><td align="right">متوسط</td><td align="right">✅ رفع شد</td><td align="right">صدور <bdi>LAN</bdi> بدون کانونیکال کردن <bdi>IPv6</bdi>، امکان <bdi>bypass</bdi> به وجود می‌آید</td></tr>
-<tr><td align="right"><bdi>S-05</bdi></td><td align="right">محدودیت منابع نسبت به هر کلاینت</td><td align="right">متوسط</td><td align="right">✅ رفع شد</td><td align="right">کمبند <bdi>SOCKS5</bdi> بدون حد برای اتصال بر کلاینت واحد</td></tr>
-<tr><td align="right"><bdi>S-06</bdi></td><td align="right">صعود امتیاز در نصب کننده</td><td align="right">بالا</td><td align="right">✅ رفع شد</td><td align="right"><bdi>UAC</bdi> بر روی نصب کننده قابل نادیده گرفتن توسط کاربر است</td></tr>
-<tr><td align="right"><bdi>S-07</bdi></td><td align="right">تزریق <bdi>XSS</bdi> در رابط کاربری</td><td align="right">متوسط</td><td align="right">✅ رفع شد</td><td align="right">فیلدهای متن بدون انجام <bdi>escape</bdi> پرسنلی‌زه می‌شوند</td></tr>
-</tbody>
-</table>
-<p dir="rtl" align="right"><strong>نمرهٔ پیش از ممیزی:</strong> <bdi>90/100</bdi> · <strong>نمرهٔ پس از ممیزی:</strong> <bdi>98/100</bdi> · <strong>بهبود:</strong> <bdi>+8</bdi> امتیاز</p>
-</div>
+### Security Score of that round: 98/100
 
 ---
 
-### English: Security Audit Report
+
+---
+
+### Findings of that round
 
 | ID | Title | Severity | Status | Description |
 |---|---|---|---|---|

@@ -27,6 +27,8 @@ import { renderCustomConfigs, customConfigsValue, refreshCustomConfigs } from '.
 // AETHER-APP-PATCH whats-new
 import { renderAnnouncements, MEGAPHONE } from './announcements.js'
 import { renderCleanIpSettings } from './cleanip.js'
+import { diagShareEnabled, setDiagShareEnabled, sendDiagnostics } from '../ui/diagshare.js'
+import { renderChainBuilder } from '../ui/chainbuilder.js'
 import {
   homeAnimationsEnabled, setHomeAnimationsEnabled,
   connectionSoundsEnabled, setConnectionSoundsEnabled,
@@ -283,6 +285,26 @@ function switchRow(title, subtitle, read, write) {
   return el
 }
 
+/** 1.5.0 (same version): «ارسال گزارش عیب‌یابی» — یک ردیفِ عملیاتی در هاب. */
+function diagSendRow() {
+  const el = document.createElement('div')
+  el.className = 'setrow setrow--diag'
+  el.tabIndex = 0
+  el.setAttribute('role', 'button')
+  el.innerHTML = '<span class="setrow__text"><span class="setrow__title"></span><span class="setrow__sub"></span></span>'
+  const title = 'Send a diagnostics report now'
+  const sub = 'Copies a redacted report and opens a new GitHub issue for the developers.'
+  el.querySelector('.setrow__title').textContent = t(title)
+  el.querySelector('.setrow__sub').textContent = t(sub)
+  el.appendChild(aiHintButton({ title: t(title), subtitle: t(sub) }))
+  const run = () => { sendDiagnostics('report', 'Report sent from Settings') }
+  el.addEventListener('click', run)
+  el.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); run() }
+  })
+  return el
+}
+
 function resetRow() {
   const el = document.createElement('div')
   el.className = 'setrow setrow--danger'
@@ -322,8 +344,8 @@ function resetRow() {
  */
 function decorateFields(root) {
   for (const field of root.querySelectorAll('.field')) {
-    // The built-in verification card has the mobile info/title/switch header.
-    if (field.classList.contains('field--verify')) continue
+    // The smart-gate card is information only (icon + title + text), no control.
+    if (field.classList.contains('field--gate')) continue
     const labelEl = field.querySelector('.field__label')
     if (!labelEl) continue
     if (field.querySelector('.aihint')) continue
@@ -363,7 +385,7 @@ function readControl(control) {
   return control.value ?? ''
 }
 
-function subPage(row, back) {
+function subPage(row, back, go = null) {
   const page = document.createElement('div')
   page.className = 'view view--settings'
 
@@ -384,6 +406,15 @@ function subPage(row, back) {
 
   const panel = row.render ? row.render() : renderAdvanced(row.sections)
   decorateFields(panel)
+  // 1.5.0 (same version): Connection starts with the unified chain builder.
+  if (row.id === 'connection' && go) {
+    const openRow = (id) => { const r = ROWS.find((x) => x.id === id); if (r) go(r) }
+    panel.prepend(renderChainBuilder({
+      panel,
+      openRow,
+      refresh: () => refreshTab(app.tab === 'tunnel' ? 'tunnel' : 'advanced'),
+    }))
+  }
   page.appendChild(panel)
   return page
 }
@@ -438,7 +469,7 @@ function buildSettings(mode) {
   // با آخرین پروفایل هم‌گام شود — نه فقط با رخدادِ بعدیِ تصادفی.
   const show = (node) => { host.replaceChildren(node); emit() }
   const goHub = () => { OPEN_BY[mode] = null; show(hub) }
-  const go = (row) => { OPEN_BY[mode] = row.id; show(subPage(row, goHub)) }
+  const go = (row) => { OPEN_BY[mode] = row.id; show(subPage(row, goHub, go)) }
 
   // ۱.۴.۰-mobile: عنوان هاب در هدر موبایل است؛ اینجا پنهان می‌ماند (mobile.css).
   const title = document.createElement('h2')
@@ -463,6 +494,11 @@ function buildSettings(mode) {
       card.appendChild(switchRow('Connection sounds',
         'Play a short cue when connected or disconnected.',
         connectionSoundsEnabled, setConnectionSoundsEnabled))
+      // 1.5.0 (same version): Send diagnostics — on by default, one switch turns it off.
+      card.appendChild(switchRow('Send diagnostics',
+        'Offer to report crashes and failed connections to the developers on GitHub. The report is redacted (no IPs, servers or keys) and is only sent when you submit it.',
+        diagShareEnabled, setDiagShareEnabled))
+      card.appendChild(diagSendRow())
     }
     hub.appendChild(card)
   }
@@ -476,7 +512,7 @@ function buildSettings(mode) {
   refreshCustomConfigs()
 
   const reopen = OPEN_BY[mode] ? rowsHere.find((r) => r.id === OPEN_BY[mode]) : null
-  if (reopen) show(subPage(reopen, goHub))
+  if (reopen) show(subPage(reopen, goHub, go))
   else show(hub)
   root.appendChild(host)
   return root

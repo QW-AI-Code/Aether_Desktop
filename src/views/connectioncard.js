@@ -44,6 +44,7 @@ import {
   TWO_PI,
 } from '../ui/glowcycle.js'
 import { homeAnimationsEnabled } from '../ui/feedback.js'
+import { openPingDetails, openChainDetails, openTrafficDetails } from '../ui/carddetails.js'
 
 const CARD_RADIUS = 26
 const IDLE_ACCENT = '#5B93FF'
@@ -254,9 +255,9 @@ export function pingStrength(connected, ms, bands = PING_BANDS_TUNNEL) {
  * @returns `{ node, paint(snapshot), destroy() }` — `paint` را جریان وضعیت
  *   صدا می‌زند و `destroy` هر دو حلقهٔ فریم را واقعاً لغو می‌کند.
  */
-/** 1.4.0-r5: «در حال اتصال…» / «در حال راستی‌آزمایی…» هرگز دو بار زیر هم نمی‌آیند.
+/** 1.4.0-r5: «در حال اتصال…» / «دروازهٔ هوشمند…» هرگز دو بار زیر هم نمی‌آیند.
  *  زیرنویس حذف می‌شود اگر با عنوان یکی باشد، یا کوتاه‌تر و پیشوندِ عنوان باشد
- *  («در حال راستی‌آزمایی…» در برابر «در حال راستی‌آزمایی اتصال…»). */
+ *  («دروازهٔ هوشمند…» در برابر «دروازهٔ هوشمند: در انتظار عبور دادهٔ واقعی…»). */
 const normStatusText = (v) => String(v ?? '').replace(/[.…\s\u200c]+/g, ' ').trim().toLowerCase()
 export function isRedundantCaption(title, caption) {
   const a = normStatusText(title)
@@ -338,6 +339,24 @@ export function createConnectionCard() {
 
   const el = (id) => node.querySelector(`#${id}`)
   const edge = node.querySelector('.ccard__edge')
+
+  // 1.5.0 (same version): the rows open their details.
+  let lastSnapshot = null
+  const clickable = (target, open) => {
+    if (!target) return
+    target.classList.add('is-clickable')
+    target.setAttribute('role', 'button')
+    target.tabIndex = 0
+    target.addEventListener('click', open)
+    target.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open() }
+    })
+  }
+  const isOn = () => lastSnapshot?.state === 'CONNECTED'
+  clickable(node.querySelector('.ccard__speeds'), () => openTrafficDetails(() => lastSnapshot))
+  clickable(node.querySelector('.ccard__slide:not(.ccard__slide--stack)'),
+    () => openChainDetails(isOn() ? resolveProtocolLabel(lastSnapshot) : '', isOn(), lastSnapshot?.ipInfo?.viaTunnel ? lastSnapshot.ipInfo.ip : ''))
+  clickable(node.querySelector('.ccard__slide--stack'), () => openPingDetails(isOn()))
   const wave = el('cc-wave')
 
   // ---- وضعیتِ زندهٔ ترسیم ------------------------------------------------
@@ -603,6 +622,7 @@ export function createConnectionCard() {
    * HTML را از نو parse می‌کند.
    */
   function paint(snapshot, opts) {
+    lastSnapshot = snapshot
     const busy = !!(opts && opts.busy)
     const failed = snapshot.state === 'FAILED'
     const wasConnected = connected

@@ -1,4 +1,4 @@
-# Third-party notices for Desktop 1.4.0
+# Third-party notices for Desktop 1.5.0
 
 The original desktop application files retain their existing notices. The native Aether engine is AGPL-3.0-only (see native/aether/LICENSE).
 

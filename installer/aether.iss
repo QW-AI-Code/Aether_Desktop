@@ -5,7 +5,7 @@
 ; ============================================================================
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.4.0"
+  #define MyAppVersion "1.5.0"
 #endif
 #ifndef MyArch
   #define MyArch "x64"
@@ -65,6 +65,8 @@ ShowLanguageDialog=auto
 CloseApplications=force
 RestartApplications=no
 SetupMutex=AetherSetupMutex
+; 1.5.0 (same version): .npvt/.npvs open with Aether (double-click / Open with).
+ChangesAssociations=yes
 AppMutex=AetherAppMutex
 
 ; ---- ظاهر حرفه‌ای -------------------------------------------------------
@@ -96,6 +98,25 @@ Name: "{group}\{#MyAppName}";                Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}";          Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 Name: "{userstartup}\{#MyAppName}";          Filename: "{app}\{#MyAppExeName}"; Parameters: "--minimized"; Tasks: startupicon
+
+[Registry]
+; ---- 1.5.0 (same version): NapsternetV config files open with Aether ----------
+; Double-click and "Open with" start Aether.exe "<file>"; openfile.rs imports it.
+Root: HKA; Subkey: "Software\Classes\.npvt"; ValueType: string; ValueName: ""; ValueData: "Aether.npvt"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.npvt\OpenWithProgids"; ValueType: string; ValueName: "Aether.npvt"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Aether.npvt"; ValueType: string; ValueName: ""; ValueData: "NapsternetV config (Aether)"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Aether.npvt\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKA; Subkey: "Software\Classes\Aether.npvt\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.npvs"; ValueType: string; ValueName: ""; ValueData: "Aether.npvs"; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.npvs\OpenWithProgids"; ValueType: string; ValueName: "Aether.npvs"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\Aether.npvs"; ValueType: string; ValueName: ""; ValueData: "NapsternetV encrypted config (Aether)"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Aether.npvs\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"
+Root: HKA; Subkey: "Software\Classes\Aether.npvs\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+; "Open with" list for the other import formats too (no default handler taken).
+Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".npvt"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".npvs"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 
 [Run]
 ; قاعدهٔ فایروال — معادل درخواست مجوز VpnService در اندروید.

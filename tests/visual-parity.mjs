@@ -24,7 +24,7 @@ try {
   const errors=[];page.on('pageerror',e=>errors.push(String(e)))
   await page.evaluateOnNewDocument((lang)=>{
    localStorage.setItem('aether.lang',lang)
-   const profile={backend:'AETHER_PSIPHON',exitRegion:'',protocol:'SMART',scanMode:'BALANCED',ipVersion:'V4',noize:'OFF',endpointMode:'AUTO',manualPeer:'',manualRange:'',mtu:1280,keepalive:0,quickReconnect:true,masqueHttp2:false,fragment:false,ech:false,lanShare:false,killSwitch:true,ipv6Protection:true,reconnectAttempts:5,splitMode:'OFF',splitApps:[],dns:['1.1.1.1'],routeBlock:[],routeDirect:[],routeSniff:true,upstream:'',reprovision:true,team:'',accessMode:'EMAIL',verifyConnection:true}
+   const profile={backend:'AETHER_PSIPHON',exitRegion:'',protocol:'SMART',scanMode:'BALANCED',ipVersion:'V4',noize:'OFF',endpointMode:'AUTO',manualPeer:'',manualRange:'',mtu:1280,keepalive:0,quickReconnect:true,masqueHttp2:false,fragment:false,ech:false,lanShare:false,killSwitch:true,ipv6Protection:true,reconnectAttempts:5,splitMode:'OFF',splitApps:[],dns:['1.1.1.1'],routeBlock:[],routeDirect:[],routeSniff:true,upstream:'',reprovision:true,team:'',accessMode:'EMAIL'}
    const configs=Array.from({length:12},(_,i)=>({id:String(i),name:i===0?'🔒 @Broz_time < کانفیگ سفارشی با نام بلند '+ 'آزمایش '.repeat(4):`${i+1} - VLESS - Domain : 2086`,server:i===0?'very-long-subdomain-'.repeat(5)+'.example.com:2086':'www.speedtest.net:2086',format:i<8?'URI':'NPVT',chainLabel:i<8?'VLESS':'Npvt',locked:i>=8,expired:false,note:'',groupId:null}))
    const cc={enabled:false,mode:'SOLO',modeLabel:'Config',activeId:'0',modes:[{id:'SOLO',label:'VLESS',hops:1}],configs,groups:[{id:'user:test',name:'test'}],tabNames:{},subscriptions:[]}
    window.__calls=[];window.__events={}
@@ -37,7 +37,7 @@ try {
      if(cmd==='set_profile'){Object.assign(profile,args.profile||args.patch||{});return {...profile}}
      if(cmd==='get_snapshot')return {state:'DISCONNECTED',detail:'Tap to connect',protocol:'SMART',latencyMs:null,uptimeSecs:0,rxBytes:0,txBytes:0}
      if(cmd==='core_caps')return {zeroTrust:true,routing:true,customDns:true,upstream:true,routeSniff:true,tor:true,coreVersion:'2.4.0'}
-     if(cmd==='news_state')return {version:'1.4.0',suppressed:'1.4.0'}
+     if(cmd==='news_state')return {version:'1.5.0',suppressed:'1.5.0'}
      if(cmd==='ai_snapshot')return {gate:'NO_KEY',gateCode:'NO_KEY',hasKey:false,messages:[],models:[],probe:{state:'IDLE'}}
      if(cmd==='cc_state'||cmd==='cc_select')return cc
      if(cmd==='cc_ping_all')return {results:configs.map((c,i)=>({id:c.id,ms:150+i*30}))}
@@ -68,8 +68,9 @@ try {
    return {horizontal:getComputedStyle(el).flexDirection==='row',contained:ai.left>=r.left-1&&ai.right<=r.right+1,align:getComputedStyle(el.querySelector('.field__label')).textAlign}
   }))
   await open('connection')
-  assert.equal(await page.$$eval('[data-key="verifyConnection"]',es=>es.length),1)
-  assert(await page.evaluate(()=>document.querySelector('[data-key="verifyConnection"]').getBoundingClientRect().top<document.querySelector('[data-key="protocol"]').getBoundingClientRect().top))
+  // 1.5.0 (same version): the verification switch was replaced by the always-on smart gate card.
+  assert.equal(await page.$$eval('[data-key="verifyConnection"]',es=>es.length),0)
+  assert(await page.evaluate(()=>document.querySelector('.field--gate').getBoundingClientRect().top<document.querySelector('[data-key="protocol"]').getBoundingClientRect().top))
   assert.equal(await page.$eval('[data-key="protocol"] [data-value="MIM"] .seg__text',el=>el.textContent),'MASQUE×2')
   assert(await page.$eval('.pick__summary',el=>el.clientWidth>250))
   assert.equal(await page.$eval('.pick__chev',el=>getComputedStyle(el).transform),lang==='fa'?'matrix(-1, 0, 0, 1, 0, 0)':'none')
@@ -79,8 +80,6 @@ try {
   await click('[data-open="backend"]');await new Promise(r=>setTimeout(r,350))
   assert.deepEqual(await page.$$eval('[data-key="backend"] .seg__text',es=>es.map(e=>e.textContent)),['Aether','Aether → Psiphon','Tor','Aether → Tor','Tor → Psiphon','Tor → Aether'])
   await shot('backend-sheet');await page.keyboard.press('Escape')
-  await click('[data-key="verifyConnection"]')
-  assert(await page.evaluate(()=>window.__calls.some(([cmd,args])=>cmd==='set_profile'&&args.profile?.verifyConnection===false)))
   await open('transport');assert.equal(await page.$$eval('[data-key="verifyConnection"]',es=>es.length),0);await shot('transport')
   for(const id of ['dns','apps','safety','zerotrust']) {
    await open(id);await noOverflow(id)

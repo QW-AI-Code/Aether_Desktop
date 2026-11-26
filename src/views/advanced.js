@@ -3,6 +3,7 @@
 // v8:
 //   * پروتکل «Auto» به «Smart» تغییر نام داد — دقیقاً هم‌نام نسخهٔ موبایل.
 //   * انتخاب زبان برنامه (English/فارسی) + دکمهٔ «بازنشانی به تنظیمات پیش‌فرض».
+import { smartGateCard } from '../ui/smartgate.js'
 import { invoke } from '@tauri-apps/api/core'
 import { app, saveProfile, rerender, refreshTab, onChange } from '../main.js'
 import { t, getLang, setLang, LANGS } from '../i18n.js'
@@ -570,7 +571,7 @@ const SECTIONS = {
     const protoNotes = [
       torReverse(backend) ? noteRow(t('Fixed to MASQUE over HTTP/2 in this mode. Tor carries TCP only and WARP\u2019s WireGuard endpoints answer on UDP alone, so the engine refuses WireGuard and WARP\u00d72 here.')) : '',
       noWarp ? noteRow(t('There is no WARP tunnel in this mode: Tor carries the traffic by itself, so the protocol, scan mode and IP version are not used.')) : '',
-      noteRow(t('Smart tries the protocols one at a time, starting with the one most likely to work on this network, and keeps the first one that passes the self-test.'),
+      noteRow(t('Smart tests WireGuard and MASQUE side by side, measures the ping and speed of every route that works, connects the best one and remembers it per network.'),
         `id="smart-note" ${p.protocol === 'SMART' && !noWarp && !torReverse(backend) ? '' : 'hidden'}`),
     ].join('')
     return `
@@ -594,14 +595,7 @@ const SECTIONS = {
     </div>` : ''}
     <div class="scard-group">
       <div class="sethub__card scard scard--fields">
-        <section class="field field--verify">
-          <div class="verify__row">
-            <span class="pick__icon" aria-hidden="true">${NOTE_ICON}</span>
-            <span class="field__label">${t('Verify connection')}</span>
-            <button type="button" class="switch ${p.verifyConnection !== false ? 'is-on' : ''}" data-key="verifyConnection" role="switch" aria-checked="${p.verifyConnection !== false}"><span class="switch__knob"></span></button>
-          </div>
-          <span class="field__hint">${t('Default on for all six built-in modes. Turning off skips optional initial connection checks, not engine startup, Tor bootstrap, exit-IP lookup or ongoing health monitoring.')}</span>
-        </section>
+        ${smartGateCard(t)}
       </div>
     </div>
     <div class="scard-group">

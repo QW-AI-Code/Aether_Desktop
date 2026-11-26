@@ -64,7 +64,7 @@ document.getElementById('view').appendChild(view)
 const hubRows = view.querySelectorAll('.setrow')
 console.log('rows in hub =', hubRows.length)
 // +2: دو سوییچ «نمایش و صدا» (انیمیشن صفحهٔ اصلی، صدای اتصال) مستقیماً در هاب‌اند.
-check(hubRows.length === SETTINGS_ROWS.length + 1 + 2, 'هر ردیف + دو سوییچ نمایش‌وصدا + ردیف بازنشانی رندر شد')
+check(hubRows.length === SETTINGS_ROWS.length + 1 + 2 + 2, 'هر ردیف + دو سوییچ نمایش‌وصدا + دو ردیف گزارش عیب‌یابی + ردیف بازنشانی رندر شد')
 check(view.querySelectorAll('.setrow .aihint').length === hubRows.length, 'هر ردیف هاب یک ✨ دارد')
 check(view.querySelector('.setnotice')?.hidden === false, 'با تونلِ وصل، نوار اطلاع دیده می‌شود')
 
@@ -81,7 +81,7 @@ for (const row of SETTINGS_ROWS) {
   el.closest('.setrow').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
   const controls = view.querySelectorAll('.seg, .select, .switch, .input, .fdrop')
   const hints = view.querySelectorAll('.field__head .aihint')
-  const labels = view.querySelectorAll('.field:not(.field--verify) .field__label')
+  const labels = view.querySelectorAll('.field:not(.field--gate) .field__label')
   console.log(`${row.id}: controls=${controls.length} labels=${labels.length} ✨=${hints.length}`)
   // `controlless`: زیرصفحه‌ای که فقط خواندنی است (بایگانیِ پیام‌ها) کنترلی ندارد.
   check(row.controlless || controls.length > 0, `${row.id}: کنترل‌های واقعی رندر شدند`)

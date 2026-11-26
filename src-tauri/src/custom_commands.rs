@@ -291,6 +291,11 @@ async fn ping_run(app: AppHandle, ids: Option<Vec<String>>) -> Result<Value, CcE
     .await
     .map_err(|_| CcError { kind: "invalid", message: "the test was interrupted".into() })?;
     crate::custom::selection::record(&results);
+    // 1.5.0 (same version): "Test all" switches a live session to the fastest
+    // server at once (state_custom.rs picks this up on its next tick).
+    if ids.is_none() && results.len() > 1 {
+        crate::custom::selection::mark_manual_run();
+    }
     let v = json!({ "results": results });
     let _ = app.emit("aether://custom-ping", &v);
     Ok(v)

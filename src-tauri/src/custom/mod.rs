@@ -32,6 +32,7 @@ pub mod npvt;
 pub mod npvo;
 pub mod present;
 pub mod npvs;
+pub mod netdns;
 pub mod selection;
 pub mod ai_policy;
 pub mod parser;

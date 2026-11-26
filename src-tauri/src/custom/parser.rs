@@ -1277,15 +1277,25 @@ fn npvt_outbound(p: &Map<String, Value>) -> Option<Map<String, Value>> {
         ("spx".into(), s("spiderX")),
         ("headerType".into(), s("headerType")),
         ("serviceName".into(), s("serviceName")),
-        ("mode".into(), s("mode")),
-        (
-            "allowInsecure".into(),
-            if prim(p.get("insecure")).as_deref() == Some("true") {
-                "1".into()
-            } else {
-                "0".into()
-            },
-        ),
+        // 1.5.0 (same version) — Windows/Android parity fix. NapsternetV writes
+        // the XHTTP mode and extra block as `xhttpMode`/`xhttpExtra`, the mKCP
+        // seed as `seed` and the gRPC authority as `authority`; the desktop port
+        // read only `mode` and dropped the rest, so XHTTP/mKCP/gRPC configs that
+        // ping on Android were rebuilt into a different (dead) outbound here.
+        ("mode".into(), {
+            let m = s("xhttpMode");
+            if m.is_empty() { s("mode") } else { m }
+        }),
+        ("extra".into(), s("xhttpExtra")),
+        ("seed".into(), s("seed")),
+        ("authority".into(), s("authority")),
+        // Same order as Android's ConfigParser.npvtOutbound: the TLS switch
+        // `tlsAllowInsecure` ("true"/"1") first, the legacy `insecure` second.
+        // The desktop port read only `insecure`, so every self-signed NapsternetV
+        // server (tlsAllowInsecure=true, insecure=false) failed certificate
+        // verification inside Xray: no real delay and no connection on Windows,
+        // while the very same file worked on Android.
+        ("allowInsecure".into(), if npvt_insecure(p) { "1".into() } else { "0".into() }),
     ];
     let id = s("password");
     // شماره‌گذاریِ EConfigTypeِ v2rayNG که خروجیِ ناپسترنت هم نگه می‌دارد.
@@ -1339,6 +1349,18 @@ fn npvt_outbound(p: &Map<String, Value>) -> Option<Map<String, Value>> {
         _ => return None,
     };
     built.outbound.as_object().cloned()
+}
+
+/// `tlsAllowInsecure` when the profile carries it (`true`/`1`), otherwise the
+/// legacy `insecure` flag — exactly `ConfigParser.npvtOutbound` on Android.
+pub(crate) fn npvt_insecure(p: &Map<String, Value>) -> bool {
+    match prim(p.get("tlsAllowInsecure")) {
+        Some(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            v == "true" || v == "1"
+        }
+        None => prim(p.get("insecure")).as_deref().map(str::trim) == Some("true"),
+    }
 }
 
 /// تنظیماتِ قفلِ نویسندهٔ npvt، که واردکننده اجرا می‌کند.
@@ -1758,6 +1780,20 @@ mod tests {
         assert!(c.raw.starts_with("NPVT1"));
         assert_eq!(out(&c)["streamSettings"]["tlsSettings"]["allowInsecure"], true);
         assert_eq!(c.name, "open");
+    }
+
+    #[test]
+    fn npvt_tls_allow_insecure_and_xhttp_fields_match_android() {
+        // NapsternetV export: TLS switch in `tlsAllowInsecure`, legacy `insecure` false.
+        let servers = format!("[{{\"name\":\"x\",\"type\":\"V2RAY\",\"v2rayProfile\":{{\"configType\":5,\"server\":\"example.org\",\"serverPort\":\"443\",\"password\":\"{UUID}\",\"network\":\"xhttp\",\"path\":\"/x\",\"security\":\"tls\",\"sni\":\"cdn.example.org\",\"xhttpMode\":\"packet-up\",\"xhttpExtra\":\"{{\\\"xPaddingBytes\\\":\\\"100-1000\\\"}}\",\"insecure\":false,\"tlsAllowInsecure\":true}}}}]");
+        let c = one(&make_npvt(&servers, "{}"));
+        let o = out(&c);
+        assert_eq!(o["streamSettings"]["tlsSettings"]["allowInsecure"], true);
+        assert_eq!(o["streamSettings"]["xhttpSettings"]["mode"], "packet-up");
+        assert_eq!(o["streamSettings"]["xhttpSettings"]["extra"]["xPaddingBytes"], "100-1000");
+        // An explicit tlsAllowInsecure=false wins over a stale insecure=true.
+        let strict = servers.replace("\"insecure\":false,\"tlsAllowInsecure\":true", "\"insecure\":true,\"tlsAllowInsecure\":false");
+        assert_eq!(out(&one(&make_npvt(&strict, "{}")))["streamSettings"]["tlsSettings"]["allowInsecure"], false);
     }
 
     #[test]

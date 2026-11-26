@@ -1276,7 +1276,7 @@ pub fn status_for_prompt(state: ConnectionState) -> &'static str {
     match state {
         ConnectionState::Connected => "connected",
         ConnectionState::Reconnecting => "reconnecting",
-        ConnectionState::Verifying => "tunnel up, end-to-end self-test still running",
+        ConnectionState::Proving => "tunnel up, the smart gate is proving that real data flows",
         ConnectionState::StartingEngine | ConnectionState::Connecting => "connecting",
         ConnectionState::Disconnecting => "disconnecting",
         ConnectionState::Disconnected => "disconnected",

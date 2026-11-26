@@ -12,7 +12,7 @@ window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
  if(cmd==='get_profile')return {backend:'AETHER',protocol:'SMART'}
  if(cmd==='get_snapshot')return {state:'DISCONNECTED',uptimeSecs:0,rxBytes:0,txBytes:0}
  if(cmd==='preset_state')return {activeId:'default',presets:[{id:'default',name:'Default'}]}
- if(cmd==='news_state')return {version:'1.4.0',suppressed:'1.4.0'}
+ if(cmd==='news_state')return {version:'1.5.0',suppressed:'1.5.0'}
  if(cmd==='plugin:event|listen')return 1
  return null
 },transformCallback:x=>x,metadata:{currentWindow:{label:'main'},currentWebview:{label:'main',windowLabel:'main'}}}

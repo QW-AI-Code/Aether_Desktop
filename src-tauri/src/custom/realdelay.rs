@@ -35,8 +35,10 @@ use std::time::{Duration, Instant};
 const TAG: &str = "custom";
 /// بیشینهٔ کانفیگ در یک Xrayِ موقت.
 pub const BATCH: usize = 32;
-/// مهلتِ هر دورِ سنجش.
-pub const ROUND_TIMEOUT: Duration = Duration::from_secs(8);
+/// مهلتِ هر دورِ سنجش — Android `RealDelay.REQUEST_TIMEOUT_MS` (12 s). The old
+/// 8 s cut off healthy CDN/TLS configs on slow Iranian links before the first
+/// byte, which Android (12 s) still measured.
+pub const ROUND_TIMEOUT: Duration = Duration::from_secs(12);
 pub const ROUNDS: usize = 2;
 /// مهلتِ تشخیصِ مستقیم (حلِ نام و TCP).
 const DIAG_TIMEOUT: Duration = Duration::from_secs(4);
@@ -157,10 +159,12 @@ pub fn batch_config(outbounds: &[(usize, Value)], ports: &[u16], creds: &[(Strin
     outs.push(json!({ "tag": "direct", "protocol": "freedom", "settings": { "domainStrategy": "UseIP" } }));
     json!({
         "log": { "loglevel": "error", "access": "none" },
-        "dns": { "tag": "ping-dns", "queryStrategy": "UseIP", "servers": ["1.1.1.1", "8.8.8.8", "localhost"] },
+        // 1.5.0 (same version): the network's own resolvers first, exactly like
+        // Android's RealDelay.buildConfig(networkDns) — see `netdns.rs`.
+        "dns": { "tag": "ping-dns", "queryStrategy": "UseIP", "servers": super::xray::direct_dns(&super::netdns::network_dns()) },
         "inbounds": inbounds,
         "outbounds": outs,
-        "policy": { "levels": { "0": { "handshake": 8, "connIdle": 30, "uplinkOnly": 2, "downlinkOnly": 5 } } },
+        "policy": { "levels": { "0": { "handshake": ROUND_TIMEOUT.as_secs(), "connIdle": 30, "uplinkOnly": 2, "downlinkOnly": 5 } } },
         "routing": { "domainStrategy": "AsIs", "rules": rules }
     })
     .to_string()

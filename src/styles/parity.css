@@ -126,10 +126,9 @@ html[dir="rtl"] .view--advanced :is(.input, .field__hint, .field__label, .view__
 }
 @media (prefers-reduced-motion: reduce) { .aihint { transition: none; } }
 
-.field--verify .verify__row { display: flex; align-items: center; gap: 12px; }
-.field--verify .verify__row > .field__label { flex: 1 1 auto; min-width: 0; color: var(--on-dark); font-size: 15px; font-weight: 600; }
-.field--verify .verify__row > .switch { flex: 0 0 auto; }
-.field--verify > .field__hint { font-size: 13px; line-height: 1.65; margin: 0; }
+.field--gate .gate__row { display: flex; align-items: center; gap: 12px; }
+.field--gate .gate__row > .field__label { flex: 1 1 auto; min-width: 0; color: var(--on-dark); font-size: 15px; font-weight: 600; }
+.field--gate > .field__hint { font-size: 13px; line-height: 1.65; margin: 0; }
 
 /* The mobile drawer uses two rounded groups with inset separators per item. */
 .drawer { background: var(--navy-800); }
@@ -331,3 +330,99 @@ html[dir="rtl"] .view--custom .cc-tab__pick { flex-direction: row-reverse; }
 .view--custom .cc-new-tab { order: -1; }
 html[dir="rtl"] .view--custom .cc-tabs { direction: rtl; }
 .view--custom .ccfg__server { font-size: 14px; font-weight: 600; direction: ltr; text-align: left; unicode-bidi: isolate; }
+
+/* 1.5.0 (same version): one-click server actions, speed sort, speed test all. */
+.view--custom .ccfg__quick { flex: none; width: 32px; height: 32px; min-height: 32px; padding: 0; display: grid; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--on-dark, #e6edf6); cursor: pointer; opacity: .85; }
+.view--custom .ccfg__quick:hover { background: var(--navy-750, #17223a); opacity: 1; }
+.view--custom .ccfg__quick:focus-visible { outline: 2px solid var(--aether-blue); outline-offset: -2px; }
+.view--custom .ccfg__quick--delete { color: #ff8fa3; }
+.view--custom .ccfg__quick--ping, .view--custom .ccfg__quick--speed { color: var(--on-dark, #e6edf6); }
+.cc-sort-card { display: flex; align-items: center; gap: 12px; }
+.cc-sort__chip { position: relative; }
+.cc-sort__chip-text { pointer-events: none; white-space: nowrap; }
+.cc-sortby { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.cc-speed-all { margin-top: 8px; }
+
+.setrow--diag { cursor: pointer; }
+
+/* 1.5.0 (same version): interactive connection card + its detail popups. */
+.ccard .is-clickable { cursor: pointer; transition: filter .15s ease; }
+.ccard .is-clickable:hover { filter: brightness(1.12); }
+.ccard .is-clickable:focus-visible { outline: 2px solid var(--aether-blue, #4c8dff); outline-offset: 2px; }
+.cdet { display: flex; flex-direction: column; gap: 6px; min-width: min(340px, 80vw); max-height: 60vh; overflow-y: auto; }
+.cdet__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.cdet__k { color: #cbd5e1; }
+.cdet__v { color: #ffffff; font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+.cdet__note { color: #94a3b8; font-size: 11.5px; line-height: 1.6; margin: 6px 0 0; }
+.cdet__h { color: #ffffff; font-size: 13px; margin: 10px 0 2px; }
+.cdet__end { text-align: center; color: #cbd5e1; font-size: 13px; }
+.cdet__arrow { text-align: center; color: #94a3b8; }
+.cdet__node { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #1e2b4a; }
+.cdet__num { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: rgba(50, 224, 196, .35); color: #ffffff; font-weight: 700; font-size: 12px; }
+.cdet__nodetext { display: flex; flex-direction: column; min-width: 0; }
+.cdet__name { color: #ffffff; font-weight: 600; font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cdet__kind { color: #cbd5e1; font-size: 12px; }
+.cdet__role { color: #94a3b8; font-size: 11px; }
+.cdet__app { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 0; }
+.cdet__appname { color: #ffffff; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cdet__chip { flex: none; padding: 3px 8px; border-radius: 999px; background: rgba(50, 224, 196, .35); color: #ffffff; font-size: 11px; }
+.cdet--chain { gap: 4px; }
+.cdet--traffic { gap: 6px; }
+
+/* 1.5.0 (same version): unified connection chain builder. */
+.chainb__caption { margin: 12px 6px 8px; font-size: 13px; font-weight: 600; color: var(--aether-blue, #4c8dff); }
+.chainb__card { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+/* 1.5.0 (same version): the chain diagram fits the width it has without any
+   feedback loop. The box is a size container whose width comes only from the
+   card and whose height is fixed, so nothing its content does can move the page
+   or toggle a scrollbar. The track's font is computed by CSS from the box width
+   (100cqi) and the measured width/font ratio --fit-k (src/ui/fit.js); everything
+   inside the track is in em, so the ratio is exact. */
+.chainb__diagram {
+  display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-start;
+  width: 100%; min-width: 0; height: 32px; flex: none;
+  overflow: hidden; white-space: nowrap; font-size: 13px;
+  container-type: inline-size; contain: layout paint style;
+}
+.chainb__track {
+  /* 1.5.0 (same version): centred by auto margins, which collapse to 0 when the row
+     is wider than the box - so an overflowing row starts at the left edge and the
+     scale() fallback in fit.js (origin: left) fits it exactly, never cut on a side. */
+  flex: none; display: inline-flex; flex-wrap: nowrap; align-items: center; gap: .1em;
+  margin-inline: auto;
+  width: max-content; white-space: nowrap; line-height: 1.2;
+  font-size: 13px;
+  font-size: clamp(var(--fit-min, 7px), calc(100cqi / var(--fit-k, 30)), var(--fit-max, 13px));
+}
+.chainb__end { flex: none; font-size: 1em; line-height: 1; }
+.chainb__arrow { flex: none; margin: 0 .3em; color: #94a3b8; line-height: 1; }
+.chainb__pill { flex: none; display: inline-flex; align-items: center; gap: .4em; padding: .3em .6em; white-space: nowrap; border-radius: .75em; background: #1e2b4a; color: #ffffff; font-family: ui-monospace, Consolas, monospace; font-weight: 600; }
+.chainb__num { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; background: rgba(50, 224, 196, .35); color: #ffffff; font-size: 11px; font-weight: 700; font-family: inherit; }
+.chainb__count { display: flex; align-items: center; gap: 8px; }
+.chainb__countlabel { flex: 1; color: #e6edf6; font-size: 13px; }
+.chainb__countbtn { width: 40px; height: 32px; border-radius: 10px; border: 1px solid #2a3a5c; background: transparent; color: #ffffff; cursor: pointer; }
+.chainb__countbtn.is-on { background: rgba(76, 141, 255, .35); border-color: #4c8dff; }
+.chainb__node { display: flex; flex-direction: column; gap: 8px; padding: 10px; border-radius: 14px; background: rgba(30, 43, 74, .55); }
+.chainb__head { display: flex; align-items: flex-start; gap: 10px; }
+.chainb__controls { display: flex; align-items: center; gap: 8px; }
+.chainb__controls .chainb__core { flex: 1 1 auto; min-width: 0; }
+.chainb__hint { margin: 0; color: #cbd5e1; font-size: 12px; line-height: 1.6; }
+.chainb__text { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.chainb__role { color: #ffffff; font-size: 12.5px; }
+.chainb__desc { color: #94a3b8; font-size: 11.5px; }
+.chainb__core { min-width: 104px; min-height: 32px; border-radius: 10px; background: #0f1626; color: #ffffff; border: 1px solid #2a3a5c; padding: 0 8px; }
+.chainb__open, .chainb__transport { flex: none; }
+.chainb__notice { margin: 0; color: #ffd27a; font-size: 12px; }
+.chainb__footer { margin: 8px 6px 0; color: #94a3b8; font-size: 11.5px; line-height: 1.6; }
+.chainb-flash { outline: 2px solid #32e0c4; outline-offset: 4px; border-radius: 16px; transition: outline-color .4s ease; }
+.chainb { margin-bottom: 4px; }
+
+/* 1.5.0 (same version): smart text — quick actions on their own row, the status chip shrinks instead of "...". */
+.view--custom .ccfg__quickbar { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-top: 4px; }
+.view--custom .ccfg__chip.ccfg__ping { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; display: inline-block; line-height: 30px; }
+/* White text on a tinted chip; the quality colour moves to the background and border. */
+.view--custom .ccfg__chip.ccfg__ping.is-good { color: #ffffff; background: rgba(86, 216, 161, .22); border-color: rgba(86, 216, 161, .6); }
+.view--custom .ccfg__chip.ccfg__ping.is-slow { color: #ffffff; background: rgba(244, 198, 106, .22); border-color: rgba(244, 198, 106, .6); }
+.view--custom .ccfg__chip.ccfg__ping.is-bad { color: #ffffff; background: rgba(255, 130, 152, .22); border-color: rgba(255, 130, 152, .6); }
+.view--custom .ccfg__chip.ccfg__ping.is-muted, .view--custom .ccfg__chip.ccfg__ping.is-wait { color: #ffffff; background: rgba(133, 146, 169, .18); border-color: rgba(133, 146, 169, .45); opacity: 1; }
+.chainb__diagram .chainb__num { width: 1.55em; height: 1.55em; font-size: .85em; }

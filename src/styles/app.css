@@ -1826,7 +1826,7 @@ html[dir="rtl"] .setnotice__text { text-align: right; }
 .btn--ping-all:disabled {opacity:.6;cursor:progress;}
 .cc-subscriptions {margin-top:12px;display:grid;gap:6px}
 
-.cc-auto,.cc-verify {flex-shrink:0}
+.cc-auto {flex-shrink:0}
 .cc-health {width:110px;min-height:36px}
 
 

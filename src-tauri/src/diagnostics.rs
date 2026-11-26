@@ -47,6 +47,10 @@ pub const C_LEAK: &str = "webrtc_udp_leak";
 /// تلاش مجدد هر ۷۵۰ms — همان مقدار اندروید.
 const RETRY_DELAY_MS: u64 = 750;
 
+/// AETHER-APP-PATCH smart-connection-gate: once data is proven, how long the
+/// self-test still waits for the exit-IP answer before reporting Connected.
+const GEO_AFTER_DATA_MS: u64 = 2_500;
+
 /// پنجرهٔ گریس خودآزما برای نشست زنجیره‌ای `Aether → Psiphon`.
 ///
 /// عمداً بلندتر از ۹۰ ثانیهٔ نشست عادی. دست‌دادن و انتخاب سرورِ خود Psiphon
@@ -338,8 +342,13 @@ pub fn run_proxy_stage_with_grace(
                 break;
             }
             if probe::tcp_via_proxy_on(port, host, *dest) {
-                working = true;
-                break;
+                // AETHER-APP-PATCH smart-gate-stage-one: the stream opened; now
+                // prove that real data comes back through it before stage 2.
+                let io = if grace_ms > 0 { Duration::from_secs(12) } else { Duration::from_secs(6) };
+                if probe::data_via_proxy_on(port, host, *dest, io) {
+                    working = true;
+                    break;
+                }
             }
             if grace_ms > 0 && Instant::now() >= stream_deadline {
                 break;
@@ -508,12 +517,38 @@ pub fn self_test(grace_ms: u64) -> SelfTestOutcome {
     }
 
     // ۳+۴) TCP و DNS/HTTP — با تلاش مجدد در پنجرهٔ گریس (معادل اجرای هم‌زمان موبایل)
+    //
+    // >>> AETHER-APP-PATCH smart-connection-gate (1.5.0, same version; mobile 1.7.0 LiveDataProof)
+    // The gate used to demand the HTTPS geolocation answer for the WHOLE grace
+    // window: a tunnel that carried data but whose geo provider was slow, rate
+    // limited or not yet warm (MASQUE over HTTP/2, a fresh Tor circuit) was
+    // thrown away, and with the optional switch off nothing proved anything.
+    // Now real data is the proof: an HTTP request through the tunnel whose
+    // response bytes come back (`probe::verify_egress`, never a bare SOCKS5
+    // reply) is enough. The exit IP is still fetched - here for a short moment
+    // after the proof, and again by `spawn_ip_lookup` once Connected.
     DiagnosticsLog::update_check(C_TCP, "RUNNING", None);
     DiagnosticsLog::update_check(C_DNS, "RUNNING", None);
     let deadline = Instant::now() + Duration::from_millis(grace_ms);
     let mut tcp_ok = false;
     let mut dns: Option<(probe::IpInfo, u64)> = None;
+    let mut data_at: Option<Instant> = None;
     loop {
+        if data_at.is_none() {
+            if let Some(egress) = probe::verify_egress() {
+                data_at = Some(Instant::now());
+                tcp_ok = true;
+                DiagnosticsLog::update_check(C_TCP, "PASS", Some("data flows"));
+                DiagnosticsLog::i(
+                    TAG,
+                    &format!(
+                        "Smart gate: data crossed the tunnel via {} ({} ms) - connected.",
+                        egress.endpoint, egress.latency_ms
+                    ),
+                );
+            }
+        }
+        // <<< AETHER-APP-PATCH smart-connection-gate
         if !tcp_ok {
             // AETHER-APP-FIX tor-proves-its-exit: در پنجرهٔ بلند (تور/زنجیره) سنجهٔ
             // TCP هم مهلتِ بلندتر می‌گیرد؛ اینجا سنجه‌ها پشتِ‌سرِ‌هم‌اند، نه
@@ -568,6 +603,14 @@ pub fn self_test(grace_ms: u64) -> SelfTestOutcome {
         if tcp_ok && dns.is_some() {
             break;
         }
+        // AETHER-APP-PATCH smart-connection-gate: data proven - the exit IP gets
+        // only a short moment more; it is looked up again once Connected.
+        if data_at
+            .map(|at| at.elapsed() >= Duration::from_millis(GEO_AFTER_DATA_MS))
+            .unwrap_or(false)
+        {
+            break;
+        }
         if Instant::now() >= deadline || self_test_cancelled(generation) {
             break;
         }
@@ -585,7 +628,15 @@ pub fn self_test(grace_ms: u64) -> SelfTestOutcome {
             "TCP via proxy failed — the engine accepted the connection but no upstream is flowing.",
         );
     }
-    let ok = dns.is_some();
+    let data_proven = data_at.is_some();
+    let ok = dns.is_some() || data_proven;
+    if dns.is_none() && data_proven {
+        DiagnosticsLog::update_check(
+            C_DNS,
+            "PASS",
+            Some("HTTP answered through the tunnel; exit IP is looked up after connect"),
+        );
+    }
     if !ok {
         DiagnosticsLog::update_check(C_DNS, "FAIL", Some("no HTTP response through the tunnel"));
         if tcp_ok {

@@ -5,10 +5,11 @@
 //! کاندیدایی است که یکی‌یکی امتحان می‌شوند تا اولینِ قبول‌شده در خودآزما
 //! برنده شود. همان منطق این‌جا پیاده شده:
 //!
-//!  * پروتکل دستی  ← دو پاس (معادل directPlan): اول همان تنظیمات کاربر
-//!    (سقف ۷۵ ثانیه)، بعد پاس ضد-DPI سخت‌شده — پروتکل هرگز عوض نمی‌شود.
-//!  * Smart Auto ← نردبان MASQUE → MASQUE سخت‌شده → GOOL → WireGuard
-//!    (همان ترتیب ترجیح SmartAuto.kt).
+//!  * پروتکل دستی  ← (معادل directPlan): اول همان تنظیمات کاربر (سقف ۷۵
+//!    ثانیه)، برای MASQUE سپس HTTP/2 (بستر TCP)، بعد پاس ضد-DPI — پروتکل هرگز
+//!    عوض نمی‌شود و ECH هرگز خودکار روشن نمی‌شود (۱.۵.۰).
+//!  * Smart Auto (نشست‌هایی که مسابقه ندارند) ← نردبانی از همان کاتالوگِ
+//!    `smart_plus::plan` (۱.۵.۰، پورت موبایل ۱.۷.۰) + دو پلهٔ «آخرین تلاش».
 
 use crate::log::DiagnosticsLog;
 use crate::profile::{ConnectionProfile, GoolMode, IpVersion, Noize, Protocol, ScanMode, TorMode};
@@ -58,6 +59,10 @@ impl NetFingerprint {
 }
 
 /// ترتیبِ پروتکل‌ها برای این شبکه — عیناً نردبانِ `SmartAuto.kt`.
+///
+/// 1.5.0: the Smart ladder is built from `smart_plus::plan` now; this stays for
+/// reference and for older callers.
+#[allow(dead_code)]
 fn preference_for(fp: NetFingerprint) -> [Protocol; 3] {
     match fp.dpi_class() {
         // روی شبکهٔ باز، WireGuard سریع‌ترین است و اندروید هم با همین شروع
@@ -88,6 +93,9 @@ pub struct NetFingerprint {
     /// A Cloudflare QUIC version-negotiation response was received. This only
     /// selects MASQUE's carrier; it does not decide whether WireGuard may run.
     pub quic_ok: bool,
+    /// 1.5.0 (mobile 1.7.0): did a QUIC Version-Negotiation probe to the MASQUE
+    /// gateways `162.159.198.1/.2:443` come back? `None` = not measured.
+    pub quic_reachable: Option<bool>,
 }
 
 impl Default for NetFingerprint {
@@ -98,6 +106,7 @@ impl Default for NetFingerprint {
             filtered: false,
             udp_ok: true,
             quic_ok: true,
+            quic_reachable: None,
         }
     }
 }
@@ -108,7 +117,61 @@ pub struct Candidate {
     pub profile: ConnectionProfile,
     pub timeout_ms: u64,
     pub label: String,
+    /// 1.5.0: the Smart catalogue id this rung was built from (`wg`, `masque.h2`,
+    /// ...), so the serial ladder can remember its winner per network.
+    pub tactic: Option<&'static str>,
 }
+
+// >>> AETHER-APP-PATCH smart-brain-ladder (1.5.0, same version)
+/// Whether a concrete rung's outer carrier is UDP (WireGuard, QUIC).
+pub fn rides_udp(p: &ConnectionProfile) -> bool {
+    match p.protocol {
+        Protocol::Wireguard => true,
+        Protocol::Gool => p.gool_mode == crate::profile::GoolMode::Classic || !p.masque_http2,
+        Protocol::Masque | Protocol::Mim => !p.masque_http2,
+        Protocol::Smart => false,
+    }
+}
+
+/// The Smart brain for the serial ladder (port of mobile 1.7.0
+/// `DpiBrain.adaptLadder`): the rungs still to come are re-planned with what
+/// the failed ones revealed. TCP carriers get TLS fragmentation (and at least
+/// the Firewall obfuscation floor) once TLS is interfered with or gateways stay
+/// silent; UDP carriers get the GFW disguise once UDP is dropped; and UDP rungs
+/// move behind TCP ones once UDP is known to be blocked. Nothing is removed.
+pub fn adapt_ladder(
+    rest: Vec<Candidate>,
+    k: &crate::smart_plus::brain::Knowledge,
+) -> Vec<Candidate> {
+    let hardened: Vec<Candidate> = rest
+        .into_iter()
+        .map(|mut c| {
+            let udp = rides_udp(&c.profile);
+            if !udp && (k.tls_interference() || k.gateways_filtered()) && !c.profile.fragment {
+                c.profile.fragment = true;
+                if (c.profile.noize as u8) < (Noize::Firewall as u8) {
+                    c.profile.noize = Noize::Firewall;
+                }
+                c.label.push_str(" · fragment (smart)");
+            } else if udp
+                && (k.gateways_filtered() || k.udp_blocked())
+                && (c.profile.noize as u8) < (Noize::Gfw as u8)
+            {
+                c.profile.noize = Noize::Gfw;
+                c.label.push_str(" · noize=gfw (smart)");
+            }
+            c
+        })
+        .collect();
+    if k.udp_blocked() {
+        let (udp, tcp): (Vec<Candidate>, Vec<Candidate>) =
+            hardened.into_iter().partition(|c| rides_udp(&c.profile));
+        tcp.into_iter().chain(udp).collect()
+    } else {
+        hardened
+    }
+}
+// <<< AETHER-APP-PATCH smart-brain-ladder
 
 /// Whether a protocol's data plane is the MASQUE carrier, i.e. whether the
 /// HTTP/3-vs-HTTP/2 choice applies to it at all.
@@ -155,18 +218,24 @@ fn harden(p: &ConnectionProfile, fp: NetFingerprint) -> ConnectionProfile {
     if h.noize == Noize::Off {
         h.noize = Noize::Firewall;
     }
-    if rides_masque_carrier(h.protocol) {
+    if h.protocol == Protocol::Masque {
+        // 1.5.0 (mobile 1.7.0 `directPlan`): the anti-DPI MASQUE pass rides
+        // HTTP/2 with TLS fragmentation - the combination that came up in Tehran
+        // (`162.159.198.2:443` over h2) when HTTP/3 never did.
+        h.masque_http2 = true;
+        h.fragment = true;
+    } else if rides_masque_carrier(h.protocol) {
         h.masque_http2 = p.masque_http2 || !fp.quic_ok;
         h.fragment = true;
-        // >>> AETHER-APP-FIX ech-only-where-sni-is-filtered
-        // Mobile parity (`SmartAuto.kt`): ECH is part of the MASQUE rung only in
-        // SNI_FILTERING / UDP_THROTTLED / HOSTILE — never on an OPEN network.
-        // Field log 2026-10-08 (OPEN): the hardened MASQUE rung was started with
-        // `--ech auto`, the engine could not fetch an ECH key ("udp://1.1.1.1:53
-        // did not answer") and exited after 12 s — a rung that could not work.
-        h.ech = p.ech || fp.dpi_class() != DpiClass::Open;
-        // <<< AETHER-APP-FIX ech-only-where-sni-is-filtered
     }
+    // >>> AETHER-APP-FIX ech-is-only-ever-the-users-choice (1.5.0)
+    // 1.4.0 switched ECH on for every hardened MASQUE rung outside OPEN networks
+    // (`ech-only-where-sni-is-filtered`). Without a fetchable ECH key core 2.4.0
+    // refuses to start - `Error: Ech("ECH is on but there is no ECH key to
+    // offer ...")` after 0.4 s - which is exactly what the Tehran logs show for
+    // every anti-DPI pass. ECH now stays whatever the user set.
+    h.ech = p.ech;
+    // <<< AETHER-APP-FIX ech-is-only-ever-the-users-choice (1.5.0)
     h
 }
 
@@ -174,16 +243,6 @@ fn harden(p: &ConnectionProfile, fp: NetFingerprint) -> ConnectionProfile {
 /// probe proved QUIC cannot work on this network.
 ///
 /// ## 1.2.3-p3: the FIRST rung must not ride a carrier already known to be dead
-///
-/// [`harden`] has done this since p2, but only for the hardened pass. The plain
-/// "as configured" rung - the first thing the ladder tries, and the one that owns
-/// the first-pass window - kept riding HTTP/3 even after the probe had proved
-/// QUIC was filtered. On the network in the field log that guaranteed the first
-/// 35 seconds of every connect went to a rung that could not possibly succeed,
-/// and because a filtered network leads with the hardened pass, the second rung
-/// then burnt another 60 seconds exactly the same way. Three quarters of the
-/// connect time the user complained about was spent on carriers the app had
-/// already measured as unusable.
 ///
 /// This only ever turns the HTTP/2 carrier ON. A user who ticked the toggle
 /// themselves is untouched, and on a healthy-UDP network nothing changes at all.
@@ -209,10 +268,6 @@ fn carrier(p: &ConnectionProfile) -> &'static str {
 // >>> AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
 /// بودجهٔ یک پلهٔ «آخرین‌شانس» — تلاشی که دلیل داریم شکست می‌خورد ولی حذفش
 /// هم درست نیست، چون انگشت‌نگاری شبکه قطعی نیست.
-///
-/// ۲۰ ثانیه یعنی: اگر انگشت‌نگاری اشتباه کرده بود و مسیر ساده کار می‌کند،
-/// در همین چند ثانیهٔ اول دست می‌دهد؛ و اگر نه، کاربر ۷۵ ثانیه پای دکمه
-/// نمی‌نشیند.
 const LAST_RESORT_MS: u64 = 20_000;
 
 fn last_resort(mut c: Candidate) -> Candidate {
@@ -221,154 +276,210 @@ fn last_resort(mut c: Candidate) -> Candidate {
 }
 // <<< AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
 
-/// معادل `directPlan` — پروتکل دستی، دو پاس، بدون تعویض پروتکل.
+/// Budget of the HTTP/2 pass of a manual MASQUE (mobile 1.7.0 `directPlan`).
+const H2_PASS_MAX_MS: u64 = 45_000;
+
+/// معادل `directPlan` — پروتکل دستی، بدون تعویض پروتکل.
+///
+/// 1.5.0 (mobile 1.7.0): three passes for MASQUE -
+/// 1. as configured (at most 75 s),
+/// 2. the same over HTTP/2 (TCP carrier) when the user did not choose it (45 s),
+/// 3. anti-DPI: obfuscation, and for MASQUE HTTP/2 + TLS fragmentation, with
+///    ECH exactly as the user set it (full budget).
+///
+/// Identical passes are dropped.
 fn direct_plan(user: &ConnectionProfile, fp: NetFingerprint) -> Vec<Candidate> {
     let full = user.connect_timeout_ms();
     let hostile = fp.filtered;
-    // 1.2.3-p3: the plain pass rides the carrier the probe says works, not the
-    // one the panel happens to default to. See [`carrier_for`].
     let plain = carrier_for(user, fp);
     let hardened = harden(&plain, fp);
     let name = format!("{:?}", user.protocol).to_uppercase();
-    if hardened == plain {
-        return vec![Candidate {
-            timeout_ms: full,
-            label: format!("{name} · as configured{}", carrier(&plain)),
-            profile: plain,
-        }];
-    }
     let as_configured = Candidate {
         timeout_ms: full.min(FIRST_PASS_MAX_MS),
         label: format!("{name} · as configured{}", carrier(&plain)),
-        profile: plain,
+        profile: plain.clone(),
+        tactic: None,
     };
+    let h2_pass = (user.protocol == Protocol::Masque && !plain.masque_http2).then(|| {
+        let mut p = plain.clone();
+        p.masque_http2 = true;
+        Candidate {
+            timeout_ms: full.min(H2_PASS_MAX_MS),
+            label: "MASQUE · h2 (TCP carrier)".to_string(),
+            profile: p,
+            tactic: None,
+        }
+    });
     let anti_dpi = Candidate {
         label: format!("{name} · hardened anti-DPI{}", carrier(&hardened)),
         profile: hardened,
         timeout_ms: full,
+        tactic: None,
     };
-    if hostile {
+    let ordered: Vec<Candidate> = if hostile {
         // >>> AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
-        // پیش‌تر اینجا `vec![anti_dpi, as_configured]` بود: پاسِ ساده دوم می‌ماند
-        // ولی بودجه‌اش همان `FIRST_PASS_MAX_MS` یعنی **۷۵ ثانیه** بود. روی شبکه‌ای
-        // که انگشت‌نگاری می‌گوید فیلتر است، این ۷۵ ثانیه خرجِ تلاشی می‌شود که
-        // دلیل داریم شکست می‌خورد — همان معطلی‌ای که کاربر از اختلافِ
-        // ویندوز و موبایل گزارش کرد.
-        //
-        // پاسِ ساده حذف نمی‌شود — انگشت‌نگاری می‌تواند منفیِ کاذب بدهد — ولی
-        // می‌رود به انتهای نردبان با بودجهٔ کوتاه: اگر درست باشد، زود جواب
-        // می‌دهد؛ اگر نه، ۷۵ ثانیه از کاربر نمی‌گیرد.
-        vec![anti_dpi, last_resort(as_configured)]
+        // روی شبکه‌ای که انگشت‌نگاری می‌گوید فیلتر است، پاسِ ضد-DPI جلو می‌افتد و
+        // پاسِ ساده با بودجهٔ کوتاه آخر می‌ماند (نه ۷۵ ثانیه).
+        let mut v = vec![anti_dpi];
+        v.extend(h2_pass);
+        v.push(last_resort(as_configured));
+        v
         // <<< AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
     } else {
-        vec![as_configured, anti_dpi]
+        let mut v = vec![as_configured];
+        v.extend(h2_pass);
+        v.push(anti_dpi);
+        v
+    };
+    distinct(ordered)
+}
+
+/// Drops a pass whose profile equals an earlier one; the earlier keeps its
+/// place, the later one's longer budget is kept on it.
+fn distinct(list: Vec<Candidate>) -> Vec<Candidate> {
+    let mut out: Vec<Candidate> = Vec::new();
+    for c in list {
+        if let Some(prev) = out.iter_mut().find(|o| o.profile == c.profile) {
+            prev.timeout_ms = prev.timeout_ms.max(c.timeout_ms);
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// Planner context for this network (shared with the Smart race).
+pub fn smart_context(
+    user: &ConnectionProfile,
+    fp: NetFingerprint,
+    prefer_tcp: bool,
+) -> crate::smart_plus::plan::Context {
+    use crate::smart_plus::plan::{Context, Dpi};
+    Context {
+        dpi: match fp.dpi_class() {
+            DpiClass::Open => Dpi::Open,
+            DpiClass::SniFiltering => Dpi::SniFiltering,
+            DpiClass::UdpThrottled => Dpi::UdpThrottled,
+            DpiClass::Hostile => Dpi::Hostile,
+        },
+        // Windows has no reliable cellular signal; never bias on it.
+        mobile: false,
+        quic: fp.quic_reachable.or(Some(fp.quic_ok)),
+        gool_classic: user.gool_mode == GoolMode::Classic,
+        prefer_tcp,
     }
 }
 
-/// نردبان Smart Auto — معادل `SmartAuto.buildPlan`.
-fn auto_plan(user: &ConnectionProfile, fp: NetFingerprint) -> Vec<Candidate> {
-    // TURBO per attempt, exactly as SmartAuto.kt does it: the ladder's speed
-    // comes from trying the NEXT strategy quickly, not from one long exhaustive
-    // scan. The budget is then read off the rung's OWN profile, so the number
-    // and the scan it pays for can never drift apart.
-    let mut rung_base = user.clone();
-    rung_base.scan_mode = ScanMode::Turbo;
-    let user = &rung_base;
-    let full = user.connect_timeout_ms();
-    let hostile = fp.filtered;
-    let mut plan = Vec::new();
+/// Log label of one Smart rung: `PROTO · noize=.. · h2 · fragment · scan=turbo`.
+pub fn tactic_label(p: &ConnectionProfile, last_resort: bool) -> String {
+    let mut parts = vec![format!("{:?}", p.protocol).to_uppercase()];
+    parts.push(format!("noize={}", format!("{:?}", p.noize).to_lowercase()));
+    let masque_carrier = rides_masque_carrier(p.protocol) || p.protocol == Protocol::Gool;
+    if masque_carrier && p.masque_http2 {
+        parts.push("h2".into());
+    } else if rides_masque_carrier(p.protocol) {
+        parts.push("h3".into());
+    }
+    if p.fragment {
+        parts.push("fragment".into());
+    }
+    if p.ech {
+        parts.push("ech".into());
+    }
+    if p.protocol == Protocol::Wireguard
+        && p.endpoint_mode == crate::profile::EndpointMode::ManualRange
+        && !p.manual_range.trim().is_empty()
+    {
+        parts.push(format!("ranges[{}]", p.manual_range.trim()));
+    }
+    parts.push(format!("scan={}", format!("{:?}", p.scan_mode).to_lowercase()));
+    let mut s = parts.join(" · ");
+    if last_resort {
+        s.push_str(" (last resort)");
+    }
+    s
+}
 
+/// Ladder rung budget: the tactic's race budget, stretched by half for a serial
+/// ladder (no second lane covers for it), never above the rung's own scan budget.
+fn rung_budget(t: &crate::smart_plus::plan::Tactic, full: u64) -> u64 {
+    (t.budget_ms + t.budget_ms / 2).min(full)
+}
+
+/// نردبان Smart Auto — 1.5.0: built from the **same catalogue** as the Smart
+/// race (`smart_plus::plan::ladder`), for profiles that cannot race (chains, a
+/// fixed endpoint, Zero Trust e-mail sign-in).
+///
+/// * both families interleaved, every tactic once, MASQUE over HTTP/2 always in;
+/// * per-network memory re-orders it (proven first, recent failures last);
+/// * MASQUE / Gool / MASQUE×2 use the core's own gateway list - nothing measured
+///   for WireGuard narrows them (desktop 1.4.0 never narrowed ranges either);
+/// * two last-resort rungs (MASQUE h2, WireGuard) with a deep scan close it.
+fn auto_plan(
+    user: &ConnectionProfile,
+    fp: NetFingerprint,
+    memory: Option<&crate::smart_plus::memory::Entry>,
+    now: i64,
+) -> Vec<Candidate> {
+    use crate::smart_plus::plan::{self as sp, Family};
+    let ctx = smart_context(user, fp, false);
+    let mut ladder = sp::ladder(ctx, memory, now);
     // فقط IPv6: WireGuard پایدارتر است — همان قاعدهٔ اندروید.
-    let order: Vec<Protocol> = if user.ip_version == IpVersion::V6 {
-        vec![Protocol::Wireguard, Protocol::Masque, Protocol::Gool]
-    } else {
-        preference_for(fp).to_vec()
-    };
+    if user.ip_version == IpVersion::V6 && ladder.first().map(|t| t.family) == Some(Family::Masque) {
+        let (warp, masque): (Vec<_>, Vec<_>) =
+            ladder.into_iter().partition(|t| t.family == Family::Warp);
+        let mut merged = vec![];
+        let n = warp.len().max(masque.len());
+        for i in 0..n {
+            merged.extend(warp.get(i).cloned());
+            merged.extend(masque.get(i).cloned());
+        }
+        ladder = merged;
+    }
     DiagnosticsLog::i(
         TAG,
         &format!(
-            "Ladder order for {:?}: {}",
+            "Ladder for {:?} (quic={:?}): {}",
             fp.dpi_class(),
-            order
-                .iter()
-                .map(|p| format!("{p:?}").to_uppercase())
-                .collect::<Vec<_>>()
-                .join(" -> ")
+            ctx.quic,
+            ladder.iter().map(|t| t.id).collect::<Vec<_>>().join(" -> ")
         ),
     );
-
-    for (i, proto) in order.iter().enumerate() {
-        let mut base = user.clone();
-        base.protocol = *proto;
-        // Same rule as `direct_plan`: never spawn a rung on a carrier the
-        // pre-connect probe already proved cannot carry traffic here.
-        let base = carrier_for(&base, fp);
-        let name = format!("{proto:?}").to_uppercase();
-        if i == 0 {
-            let as_configured = Candidate {
-                label: format!("{name} · as configured{}", carrier(&base)),
-                profile: base.clone(),
-                timeout_ms: full.min(FIRST_PASS_MAX_MS),
-            };
-            let hardened = harden(&base, fp);
-            let anti_dpi = Candidate {
-                label: format!("{name} · hardened anti-DPI{}", carrier(&hardened)),
-                profile: hardened,
-                timeout_ms: full.min(120_000),
-            };
-            if hostile {
-                plan.push(anti_dpi);
-                // >>> AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
-                // معطلیِ لاگ از **بودجه** می‌آمد، نه از جایگاه: این پله با
-                // `FIRST_PASS_MAX_MS` یعنی **۷۵ ثانیه** می‌گرفت، روی شبکه‌ای که
-                // انگشت‌نگاری می‌گوید فیلتر است. حالا همان جا می‌ماند ولی
-                // `LAST_RESORT_MS` می‌گیرد.
-                //
-                // در نسخهٔ قبلیِ این اصلاح، این پله را به تهِ نردبان موکول
-                // کردم و قراردادِ مستندِ نردبان را شکستم: در SNI_FILTERING
-                // باید آخرین پله MASQUE باشد — تست
-                // `sni_filtering_keeps_wireguard_first_and_pushes_masque_last`
-                // در CI همین را گرفت (left: Wireguard, right: Masque). ترتیبِ
-                // پروتکل‌ها تصمیمِ دیگری است و این اصلاح حق ندارد به آن
-                // دست بزند.
-                plan.push(last_resort(as_configured));
-                // <<< AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
-            } else {
-                plan.push(as_configured);
-                plan.push(anti_dpi);
-            }
-            // 1.2.3-p2: on a healthy-UDP network the two MASQUE rungs above both
-            // ride HTTP/3, so the ladder would never reach the TCP carrier at
-            // all if QUIC turned out to be blocked mid-scan rather than at probe
-            // time. One explicit HTTP/2 rung keeps that escape hatch, at the
-            // END, where it belongs - instead of being the second thing tried.
-            if *proto == Protocol::Masque && fp.udp_ok && !user.masque_http2 {
-                let mut h2 = harden(&base, fp);
-                h2.masque_http2 = true;
-                plan.push(Candidate {
-                    label: format!("{name} · hardened anti-DPI{}", carrier(&h2)),
-                    profile: h2,
-                    timeout_ms: full.min(120_000),
-                });
-            }
-        } else {
-            let hardened = harden(&base, fp);
-            plan.push(Candidate {
-                label: format!("{name} · hardened anti-DPI{}", carrier(&hardened)),
-                profile: hardened,
-                timeout_ms: if i + 1 == order.len() {
-                    full
-                } else {
-                    full.min(120_000)
-                },
-            });
-        }
+    let mut plan = Vec::new();
+    for t in &ladder {
+        let profile = crate::smart_plus::apply(t, user, false);
+        let full = profile.connect_timeout_ms();
+        plan.push(Candidate {
+            label: tactic_label(&profile, false),
+            timeout_ms: rung_budget(t, full),
+            profile,
+            tactic: Some(t.id),
+        });
+    }
+    for t in sp::last_resort(ctx) {
+        let profile = crate::smart_plus::last_resort_profile(&t, user);
+        plan.push(Candidate {
+            label: tactic_label(&profile, true),
+            timeout_ms: profile.connect_timeout_ms(),
+            profile,
+            tactic: Some(t.id),
+        });
     }
     plan
 }
 
 /// نقطهٔ ورود: برنامهٔ کامل اتصال برای پروفایل کاربر.
 pub fn build_plan(user: &ConnectionProfile, fp: NetFingerprint) -> Vec<Candidate> {
+    build_plan_with_memory(user, fp, None, 0)
+}
+
+/// [`build_plan`] with the per-network Smart memory (ladder order only).
+pub fn build_plan_with_memory(
+    user: &ConnectionProfile,
+    fp: NetFingerprint,
+    memory: Option<&crate::smart_plus::memory::Entry>,
+    now: i64,
+) -> Vec<Candidate> {
     // پیش از هر چیز: حالت‌هایی که ترافیک دستگاه از تور بیرون می‌رود، نردبان
     // ندارند. اثرانگشتِ شبکه هم برایشان بی‌معنی است — چیزی که آن‌جا شکست
     // می‌خورد یا موفق می‌شود، bootstrapِ تور است نه یک نقطهٔ پایانی WARP.
@@ -386,13 +497,18 @@ pub fn build_plan(user: &ConnectionProfile, fp: NetFingerprint) -> Vec<Candidate
             "Network fingerprint: this network looks filtered - anti-DPI attempts run first.",
         );
     }
-    // Say it out loud: this single bit decides HTTP/3 (QUIC) versus HTTP/2 (TCP)
-    // for the MASQUE carrier, and the two have very different throughput.
+    // Say it out loud: this decides HTTP/3 (QUIC) versus HTTP/2 (TCP) for the
+    // MASQUE carrier, and the two have very different throughput.
     DiagnosticsLog::i(
         TAG,
         &format!(
-            "Network fingerprint: udp={} → MASQUE carrier prefers {}",
+            "Network fingerprint: udp={} quic={} → MASQUE carrier prefers {}",
             if fp.udp_ok { "ok" } else { "blocked/throttled" },
+            match fp.quic_reachable {
+                Some(true) => "reachable",
+                Some(false) => "unreachable",
+                None => "unknown",
+            },
             if fp.quic_ok {
                 "HTTP/3 (QUIC)"
             } else {
@@ -402,7 +518,7 @@ pub fn build_plan(user: &ConnectionProfile, fp: NetFingerprint) -> Vec<Candidate
     );
     let plan = if user.protocol == Protocol::Smart {
         DiagnosticsLog::i(TAG, "Smart Auto: building the strategy ladder…");
-        auto_plan(user, fp)
+        auto_plan(user, fp, memory, now)
     } else {
         direct_plan(user, fp)
     };
@@ -463,6 +579,7 @@ fn tor_plan(user: &ConnectionProfile) -> Option<Vec<Candidate>> {
                 profile: user.clone(),
                 timeout_ms: tor_budget(user),
                 label: "Tor \u{b7} direct or via bridges".to_string(),
+                tactic: None,
             }])
         }
         Some(TorMode::Reverse) => {
@@ -496,6 +613,7 @@ fn tor_plan(user: &ConnectionProfile) -> Option<Vec<Candidate>> {
                 profile: p,
                 timeout_ms: tor_budget(user),
                 label: "MASQUE \u{b7} h2 \u{b7} through Tor".to_string(),
+                tactic: None,
             }])
         }
         _ => None,
@@ -527,36 +645,59 @@ mod tests {
     use super::*;
     use crate::profile::TransportBackend;
 
+    fn fp(filtered: bool, udp_ok: bool, quic_ok: bool) -> NetFingerprint {
+        NetFingerprint {
+            filtered,
+            udp_ok,
+            quic_ok,
+            quic_reachable: None,
+        }
+    }
+    fn labels(plan: &[Candidate]) -> Vec<String> {
+        plan.iter().map(|c| c.label.clone()).collect()
+    }
+    fn is_last_resort(c: &Candidate) -> bool {
+        c.label.ends_with("(last resort)")
+    }
+
     /// نردبان باید Turbo بدهد در حالی که پروفایلِ ذخیره‌شده Balanced می‌ماند —
-    /// همان چیدمانِ موبایل ۱.۳.۰ (`SmartAuto.kt`: «TURBO per attempt»).
-    ///
-    /// دو سنجه دارد و هر دو لازم است: اگر فقط حالتِ اسکن سنجیده شود، کسی می‌تواند
-    /// آن را بگذارد و بودجه را از پروفایلِ کاربر بخواند؛ و اگر فقط بودجه سنجیده
-    /// شود، عددِ درست می‌ماند در حالی که موتور اسکنِ دیگری اجرا می‌کند.
+    /// همان چیدمانِ موبایل (`SmartAuto.kt`: «TURBO per attempt»). فقط دو پلهٔ
+    /// «آخرین تلاش» اسکنِ عمیق دارند.
     #[test]
     fn every_ladder_rung_scans_in_turbo_while_the_profile_stays_balanced() {
         let user = ConnectionProfile::default();
-        assert_eq!(
-            user.scan_mode,
-            ScanMode::Balanced,
-            "پیش‌فرضِ ذخیره‌شده باید مثل موبایل باشد"
-        );
+        assert_eq!(user.scan_mode, ScanMode::Balanced);
         let plan = build_plan(&user, NetFingerprint::default());
         assert!(plan.len() > 1, "نردبان باید چند پله داشته باشد، نه یکی");
-        for c in &plan {
+        for c in plan.iter().filter(|c| !is_last_resort(c)) {
             assert_eq!(c.profile.scan_mode, ScanMode::Turbo, "{}", c.label);
-            assert!(
-                c.timeout_ms <= 60_000,
-                "{} بودجهٔ {} گرفت — یعنی از پروفایلِ کاربر خوانده شده نه از پلهٔ خودش",
-                c.label,
-                c.timeout_ms
-            );
+            assert!(c.timeout_ms <= 60_000, "{} got {}", c.label, c.timeout_ms);
+        }
+        let deep: Vec<_> = plan.iter().filter(|c| is_last_resort(c)).collect();
+        assert_eq!(deep.len(), 2);
+        assert_eq!(deep[0].tactic, Some("masque.h2"));
+        assert_eq!(deep[1].tactic, Some("wg"));
+        for c in deep {
+            assert_eq!(c.profile.scan_mode, ScanMode::Balanced, "{}", c.label);
+            assert_eq!(c.timeout_ms, c.profile.connect_timeout_ms());
         }
     }
 
-    /// پروتکلِ دستی = بی نردبان. آن‌جا حالتِ اسکنِ خودِ کاربر می‌ماند و بودجهٔ
-    /// کاملِ ۱۵۰ ثانیه می‌آید — همان کاری که `directPlan` موبایل می‌کند. پیش از
-    /// ۱.۲.۵ این مسیر در دسکتاپ فقط ۶۰ ثانیه می‌گرفت، چون پیش‌فرض Turbo بود.
+    /// A user on Turbo gets Balanced for the deep last-resort scan.
+    #[test]
+    fn the_last_resort_of_a_turbo_user_scans_balanced() {
+        let user = ConnectionProfile {
+            scan_mode: ScanMode::Turbo,
+            ..Default::default()
+        };
+        let plan = build_plan(&user, NetFingerprint::default());
+        assert!(plan
+            .iter()
+            .filter(|c| is_last_resort(c))
+            .all(|c| c.profile.scan_mode == ScanMode::Balanced));
+    }
+
+    /// پروتکلِ دستی = بی نردبان. حالتِ اسکنِ خودِ کاربر می‌ماند و بودجهٔ کامل می‌آید.
     #[test]
     fn a_manual_protocol_keeps_the_users_own_scan_mode() {
         let user = ConnectionProfile {
@@ -569,11 +710,7 @@ mod tests {
         for c in &plan {
             assert_eq!(c.profile.scan_mode, ScanMode::Balanced, "{}", c.label);
         }
-        assert_eq!(
-            plan.last().unwrap().timeout_ms,
-            150_000,
-            "پاسِ آخرِ مسیرِ دستی باید بودجهٔ کاملِ حالتِ اسکنِ کاربر را بگیرد"
-        );
+        assert_eq!(plan.last().unwrap().timeout_ms, 150_000);
     }
 
     #[test]
@@ -598,8 +735,6 @@ mod tests {
         }
     }
 
-    /// `--tor-only` gets exactly one attempt. Three identical engine invocations
-    /// would only kill a half-finished bootstrap twice and start over.
     #[test]
     fn tor_only_gets_one_attempt_on_a_bootstrap_budget() {
         let p = ConnectionProfile {
@@ -611,14 +746,9 @@ mod tests {
         };
         let plan = build_plan(&p, NetFingerprint::default());
         assert_eq!(plan.len(), 1, "tor-only must not walk a ladder");
-        assert_eq!(
-            plan[0].timeout_ms,
-            crate::diagnostics::TOR_BOOTSTRAP_BUDGET_MS
-        );
+        assert_eq!(plan[0].timeout_ms, crate::diagnostics::TOR_BOOTSTRAP_BUDGET_MS);
     }
 
-    /// Bridges make the engine try several transports of its own, so the budget
-    /// has to cover that — same rule as mobile's `torBudget`.
     #[test]
     fn permitted_bridges_widen_the_budget() {
         let p = ConnectionProfile {
@@ -632,10 +762,6 @@ mod tests {
         );
     }
 
-    /// The reverse chain has ONE usable transport. A WireGuard or Gool rung here
-    /// is refused by the engine instantly and burns Tor's budget, so the plan
-    /// must contain neither — and its MASQUE must be on HTTP/2, because Tor
-    /// carries no UDP.
     #[test]
     fn the_reverse_chain_never_plans_a_transport_tor_cannot_carry() {
         for protocol in [
@@ -649,28 +775,13 @@ mod tests {
                 protocol,
                 ..Default::default()
             };
-            let plan = build_plan(
-                &p,
-                NetFingerprint {
-                    filtered: true,
-                    udp_ok: true,
-                    quic_ok: true,
-                },
-            );
-            assert_eq!(
-                plan.len(),
-                1,
-                "reverse chain must not walk a ladder ({protocol:?})"
-            );
+            let plan = build_plan(&p, fp(true, true, true));
+            assert_eq!(plan.len(), 1, "reverse chain must not walk a ladder ({protocol:?})");
             assert_eq!(plan[0].profile.protocol, Protocol::Masque);
             assert!(plan[0].profile.masque_http2, "UDP does not survive Tor");
         }
     }
 
-    /// Mobile 1.4.0 `reversePlan`: through Tor the engine runs its SHORTEST scan,
-    /// and nothing measured on the direct path (a pinned range or peer) may narrow
-    /// it. The field log that motivated this scanned 896 candidates on two /24s
-    /// from a direct-path DPI fingerprint, through one Tor circuit, in 45 s.
     #[test]
     fn the_reverse_chain_scans_turbo_and_drops_direct_path_ranges() {
         let p = ConnectionProfile {
@@ -692,10 +803,6 @@ mod tests {
         assert!(rung.to_args().iter().any(|a| a == "--turbo"));
     }
 
-    /// The ordinary chain is deliberately NOT gated: stage 1 there is a full WARP
-    /// tunnel with Tor started afterwards and through it, so it wants the same
-    /// fingerprinting and anti-DPI hardening as any other session. Its Tor budget
-    /// lives in `state.rs`, not here.
     #[test]
     fn the_ordinary_tor_chain_keeps_the_full_ladder() {
         let plain = build_plan(
@@ -716,10 +823,7 @@ mod tests {
             NetFingerprint::default(),
         );
         assert!(chained.len() > 1, "Aether → Tor lost its ladder");
-        assert_eq!(
-            plain.iter().map(|c| c.label.clone()).collect::<Vec<_>>(),
-            chained.iter().map(|c| c.label.clone()).collect::<Vec<_>>(),
-        );
+        assert_eq!(labels(&plain), labels(&chained));
     }
 
     #[test]
@@ -729,261 +833,126 @@ mod tests {
         assert_eq!(next_after(Protocol::Wireguard), None);
     }
 
-    /// 1.2.3-p3 regression guard. On a network where the QUIC probe failed,
-    /// EVERY MASQUE rung has to be HTTP/2 - including the plain first pass,
-    /// which is the one that owns the first-pass window.
+    /// QUIC dead: MASQUE over HTTP/2 leads the ladder and no MASQUE rung rides QUIC
+    /// before the HTTP/2 one has been tried.
     #[test]
-    fn no_masque_rung_rides_quic_when_quic_is_dead() {
-        let p = ConnectionProfile::default();
-        let fp = NetFingerprint {
-            filtered: false,
-            udp_ok: false,
-            quic_ok: false,
+    fn quic_dead_puts_masque_over_http2_first() {
+        let plan = build_plan(&ConnectionProfile::default(), fp(false, false, false));
+        assert_eq!(plan[0].tactic, Some("masque.h2"), "{:?}", labels(&plan));
+        assert!(plan[0].profile.masque_http2);
+        assert!(plan[0].label.contains(" · h2"), "{}", plan[0].label);
+        let q = NetFingerprint {
+            quic_reachable: Some(false),
+            ..NetFingerprint::default()
         };
-        let plan = build_plan(&p, fp);
-        let masque: Vec<&Candidate> = plan
-            .iter()
-            .filter(|c| c.profile.protocol == Protocol::Masque)
-            .collect();
-        assert!(!masque.is_empty());
-        for c in &masque {
+        assert_eq!(build_plan(&ConnectionProfile::default(), q)[0].tactic, Some("masque.h2"));
+    }
+
+    /// Every ladder has MASQUE over HTTP/2 - 1.4.0's OPEN ladder had none.
+    #[test]
+    fn every_ladder_carries_masque_over_http2() {
+        for (filtered, udp_ok) in [(false, true), (true, true), (false, false), (true, false)] {
+            let plan = build_plan(&ConnectionProfile::default(), fp(filtered, udp_ok, udp_ok));
             assert!(
-                c.profile.masque_http2,
-                "rung `{}` still rides QUIC",
-                c.label
-            );
-            assert!(
-                c.label.ends_with(" · h2"),
-                "label lies about the carrier: {}",
-                c.label
+                plan.iter().any(|c| c.profile.protocol == Protocol::Masque
+                    && c.profile.masque_http2
+                    && !is_last_resort(c)),
+                "{:?}",
+                labels(&plan)
             );
         }
     }
 
-    /// The mirror image: on a healthy network every MASQUE rung rides HTTP/3,
-    /// the fast carrier.
-    ///
-    /// تا ۱.۲.۵ این تست چیزِ دیگری می‌گفت — «پلهٔ اول MASQUE با h3 است» — و
-    /// همان ایرادِ گزارش‌شده را به‌عنوان رفتارِ درست قفل کرده بود. حالا پلهٔ اولِ
-    /// شبکهٔ باز WireGuard است (پایین‌تر سنجیده می‌شود) و ادعای واقعیِ این تست
-    /// روی MASQUE باقی می‌ماند، هر جای نردبان که باشد.
-    /// اثرانگشتِ دقیقِ لاگ میدانی: UDP کار می‌کند، QUIC فیلتر است.
-    ///
-    /// ```text
-    ///   netprobe: UDP works but no Cloudflare edge answered QUIC on UDP:443
-    ///   auto:     udp=blocked/throttled → Ladder for UdpThrottled: MASQUE -> GOOL -> WIREGUARD
-    /// ```
-    ///
-    /// سطر دوم غلط بود و از همان یک بیت می‌آمد: نتیجهٔ QUIC به‌جای نتیجهٔ UDP
-    /// نوشته می‌شد. در همان دستگاه، WireGuard دستی در ۳۳ ثانیه وصل شد
-    /// (`wg endpoint 162.159.195.33:908`)، پس شبکه اصلاً UDP-blocked نبود.
-    /// حالا دو سنجه جدا هستند: WireGuard اول می‌آید و MASQUE حاملِ HTTP/2
-    /// می‌گیرد، نه اینکه کلِ شبکه UDP-مرده فرض شود.
+    /// UDP works, QUIC filtered (the field log): WireGuard leads, MASQUE leads with h2.
     #[test]
-    fn udp_alive_but_quic_filtered_still_leads_with_wireguard() {
-        let fp = NetFingerprint {
-            filtered: false,
-            udp_ok: true,
-            quic_ok: false,
-        };
-        assert_eq!(
-            fp.dpi_class(),
-            DpiClass::Open,
-            "UDP سالم است، پس شبکه باز است"
-        );
-
-        let plan = build_plan(&ConnectionProfile::default(), fp);
-        assert_eq!(
-            plan[0].profile.protocol,
-            Protocol::Wireguard,
-            "پلهٔ اول باید WireGuard باشد، نه MASQUE — این همان باگ لاگ است",
-        );
-
-        // و هر پلهٔ MASQUE روی HTTP/2 می‌رود، چون QUIC اینجا واقعاً فیلتر است.
-        let masque: Vec<&Candidate> = plan
-            .iter()
-            .filter(|c| c.profile.protocol == Protocol::Masque)
-            .collect();
-        assert!(!masque.is_empty(), "MASQUE باید در نردبان بماند");
-        for rung in masque {
-            assert!(
-                rung.profile.masque_http2,
-                "پلهٔ `{}` هنوز روی QUIC است",
-                rung.label
-            );
-        }
+    fn udp_alive_but_quic_filtered_leads_with_masque_h2_and_keeps_wireguard_second() {
+        let f = fp(false, true, false);
+        assert_eq!(f.dpi_class(), DpiClass::Open);
+        let plan = build_plan(&ConnectionProfile::default(), f);
+        // quic=false → h2 first → the MASQUE lane leads; WireGuard is second.
+        assert_eq!(plan[0].tactic, Some("masque.h2"));
+        assert_eq!(plan[1].profile.protocol, Protocol::Wireguard);
     }
 
-    /// `MASQUE×2` دستی هم باید حاملی بگیرد که پروب ثابت کرده کار می‌کند.
-    ///
-    /// روی شبکهٔ لاگ میدانی QUIC فیلتر است، پس دو هاپِ MASQUE روی QUIC یعنی
-    /// هاپِ بیرونی هرگز بالا نمی‌آید و هاپِ درونی هرگز نوبت نمی‌گیرد. هستهٔ
-    /// ۲.۰.۰ هر دو هاپ را روی همان `AETHER_MASQUE_HTTP2` می‌برد، پس همین سوییچ
-    /// اینجا هم معنا دارد.
     #[test]
     fn a_hand_picked_two_hop_masque_also_avoids_a_dead_carrier() {
-        let quic_dead = NetFingerprint {
-            filtered: false,
-            udp_ok: true,
-            quic_ok: false,
-        };
         let user = ConnectionProfile {
             protocol: Protocol::Mim,
             gool_mode: GoolMode::Modern,
             ..Default::default()
         };
-        assert!(!user.masque_http2, "کاربر هیچ تیکی نزده است");
-
-        let plan = build_plan(&user, quic_dead);
-        assert!(!plan.is_empty());
-        for rung in &plan {
-            assert_eq!(
-                rung.profile.protocol,
-                Protocol::Mim,
-                "پروتکل دستی عوض نمی‌شود"
-            );
-            assert!(
-                rung.profile.masque_http2,
-                "پلهٔ `{}` هنوز روی QUIC است",
-                rung.label
-            );
-            assert!(
-                rung.label.contains("· h2"),
-                "برچسب حامل را نمی‌گوید: {}",
-                rung.label
-            );
+        assert!(!user.masque_http2);
+        for rung in &build_plan(&user, fp(false, true, false)) {
+            assert_eq!(rung.profile.protocol, Protocol::Mim);
+            assert!(rung.profile.masque_http2, "{}", rung.label);
+            assert!(rung.label.contains("· h2"), "{}", rung.label);
         }
-
-        // و روی شبکهٔ سالم هیچ‌چیز عوض نمی‌شود: QUIC حاملِ سریع‌تر است.
-        let healthy = NetFingerprint {
-            filtered: false,
-            udp_ok: true,
-            quic_ok: true,
-        };
-        for rung in build_plan(&user, healthy) {
+        for rung in build_plan(&user, fp(false, true, true)) {
             assert!(!rung.profile.masque_http2, "شبکهٔ سالم نباید به HTTP/2 برود");
             assert!(rung.label.contains("· h3"), "برچسب: {}", rung.label);
         }
     }
 
+    /// On a healthy network the ladder opens with bare WireGuard and MASQUE over
+    /// HTTP/3, both inside the first-pass window.
     #[test]
-    fn healthy_udp_still_leads_with_quic() {
-        let p = ConnectionProfile::default();
-        let plan = build_plan(&p, NetFingerprint::default());
-        let masque: Vec<_> = plan
-            .iter()
-            .filter(|c| c.profile.protocol == Protocol::Masque)
-            .collect();
-        assert!(!masque.is_empty(), "no MASQUE rung at all");
-        for c in masque {
-            assert!(
-                !c.profile.masque_http2,
-                "rung `{}` fell back to h2",
-                c.label
-            );
-            assert!(
-                c.label.ends_with(" · h3"),
-                "label lies about the carrier: {}",
-                c.label
-            );
-        }
+    fn a_healthy_network_leads_with_wireguard_then_masque_h3() {
+        let plan = build_plan(&ConnectionProfile::default(), fp(false, true, true));
+        assert_eq!(plan[0].tactic, Some("wg"), "{:?}", labels(&plan));
+        assert_eq!(plan[0].profile.noize, Noize::Off);
+        assert_eq!(plan[1].tactic, Some("masque.h3"));
+        assert!(!plan[1].profile.masque_http2);
+        assert!(plan[0].timeout_ms <= FIRST_PASS_MAX_MS);
     }
 
-    /// ۱.۲.۵: ترتیبِ نردبان از شکلِ فیلترینگ می‌آید، نه از یک آرایهٔ ثابت.
-    ///
-    /// این همان چیزی است که کاربر گزارش کرد: روی شبکه‌ای که اندروید با
-    /// WireGuard در ۵ ثانیه وصل می‌شود، دسکتاپ WireGuard را «نادیده می‌گیرد».
-    /// دلیلش این بود که WireGuard در `PREFERENCE` همیشه آخر بود، پس پیش از
-    /// رسیدن به آن باید ۳۵ + ۱۲۰ + ۱۲۰ + ۱۲۰ ثانیه پله‌های MASQUE و GOOL
-    /// می‌سوخت.
     #[test]
-    fn a_healthy_network_leads_with_wireguard_like_android() {
-        let p = ConnectionProfile::default();
-        let fp = NetFingerprint {
-            filtered: false,
-            udp_ok: true,
-            quic_ok: true,
-        };
-        assert_eq!(fp.dpi_class(), DpiClass::Open);
-        let plan = build_plan(&p, fp);
-        assert_eq!(
-            plan[0].profile.protocol,
-            Protocol::Wireguard,
-            "first rung is `{}`",
-            plan[0].label
-        );
-    }
-
-    /// و روی شبکه‌ای که UDP در آن مرده، همان ترتیبِ قبلی درست است: MASQUE اول،
-    /// WireGuard آخر — چون WireGuard بی UDP هیچ شانسی ندارد.
-    #[test]
-    fn without_udp_wireguard_stays_last() {
-        let p = ConnectionProfile::default();
-        let fp = NetFingerprint {
-            filtered: false,
-            udp_ok: false,
-            quic_ok: false,
-        };
-        assert_eq!(fp.dpi_class(), DpiClass::UdpThrottled);
-        let plan = build_plan(&p, fp);
+    fn without_udp_masque_leads_and_wireguard_closes() {
+        let f = fp(false, false, false);
+        assert_eq!(f.dpi_class(), DpiClass::UdpThrottled);
+        let plan = build_plan(&ConnectionProfile::default(), f);
         assert_eq!(plan[0].profile.protocol, Protocol::Masque);
         assert_eq!(plan.last().unwrap().profile.protocol, Protocol::Wireguard);
     }
 
-    /// فیلترینگِ TCP/SNI با UDPِ سالم: WireGuard اول می‌ماند (UDP دست‌نخورده
-    /// است) و MASQUE که به TLS/SNI حساس‌تر است به آخر می‌رود — نردبانِ
-    /// `SmartAuto.kt` برای `SNI_FILTERING`.
+    /// SNI filtering: WireGuard first (UDP is fine); the MASQUE lane opens with
+    /// HTTP/2, then fragmented HTTP/2.
     #[test]
-    fn sni_filtering_keeps_wireguard_first_and_pushes_masque_last() {
-        let p = ConnectionProfile::default();
-        let fp = NetFingerprint {
-            filtered: true,
-            udp_ok: true,
-            quic_ok: true,
-        };
-        assert_eq!(fp.dpi_class(), DpiClass::SniFiltering);
-        let plan = build_plan(&p, fp);
+    fn sni_filtering_keeps_wireguard_first_and_leads_masque_with_h2() {
+        let f = fp(true, true, true);
+        assert_eq!(f.dpi_class(), DpiClass::SniFiltering);
+        let plan = build_plan(&ConnectionProfile::default(), f);
         assert_eq!(plan[0].profile.protocol, Protocol::Wireguard);
-        assert_eq!(plan.last().unwrap().profile.protocol, Protocol::Masque);
+        let masque: Vec<_> = plan
+            .iter()
+            .filter(|c| c.profile.protocol == Protocol::Masque && !is_last_resort(c))
+            .map(|c| c.tactic.unwrap())
+            .collect();
+        assert_eq!(masque, ["masque.h2", "masque.h2.frag", "masque.h3"]);
     }
 
-    /// هر چهار کلاس باید هر سه پروتکل را در نردبان داشته باشند: ترتیب عوض
-    /// می‌شود، ولی هیچ پروتکلی حذف نمی‌شود — وگرنه یک شبکه‌ای پیدا می‌شود که
-    /// تنها راهِ کارآمدش هرگز امتحان نمی‌شود.
     #[test]
     fn no_dpi_class_ever_drops_a_protocol() {
         for (filtered, udp_ok) in [(false, true), (true, true), (false, false), (true, false)] {
-            let fp = NetFingerprint {
-                filtered,
-                udp_ok,
-                quic_ok: udp_ok,
-            };
-            let plan = build_plan(&ConnectionProfile::default(), fp);
-            for proto in [Protocol::Wireguard, Protocol::Masque, Protocol::Gool] {
+            let f = fp(filtered, udp_ok, udp_ok);
+            let plan = build_plan(&ConnectionProfile::default(), f);
+            for proto in [Protocol::Wireguard, Protocol::Masque, Protocol::Gool, Protocol::Mim] {
                 assert!(
                     plan.iter().any(|c| c.profile.protocol == proto),
                     "{:?}: {proto:?} missing from the ladder",
-                    fp.dpi_class()
+                    f.dpi_class()
                 );
             }
         }
     }
 
-    /// و آن‌چه بی این سنجه بی‌صدا برمی‌گردد: کاربر با شبکهٔ سالم باید در
-    /// **پاسِ اول** به WireGuard برسد، نه پس از سوختنِ بودجهٔ چند پله.
+    /// Modern Gool (WireGuard inside MASQUE) rides the MASQUE carrier choice.
     #[test]
-    fn on_a_healthy_network_wireguard_gets_the_first_pass_window() {
-        let plan = build_plan(&ConnectionProfile::default(), NetFingerprint::default());
-        assert_eq!(plan[0].profile.protocol, Protocol::Wireguard);
-        assert!(
-            plan[0].timeout_ms <= FIRST_PASS_MAX_MS,
-            "first rung waits {}ms",
-            plan[0].timeout_ms
-        );
+    fn modern_gool_follows_the_masque_carrier() {
+        let plan = build_plan(&ConnectionProfile::default(), fp(false, false, false));
+        let gool = plan.iter().find(|c| c.profile.protocol == Protocol::Gool).unwrap();
+        assert!(gool.profile.masque_http2, "{}", gool.label);
     }
 
-    /// A user who chose HTTP/2 in the panel keeps it on a healthy network too:
-    /// `carrier_for` only ever turns the carrier on.
     #[test]
     fn an_explicit_http2_choice_is_never_undone() {
         let p = ConnectionProfile {
@@ -1011,88 +980,123 @@ mod tests {
         assert_eq!(plan[0].profile.protocol, plan[1].profile.protocol);
     }
 
-    // >>> AETHER-APP-FIX ech-only-where-sni-is-filtered
-    /// OPEN network: no rung asks for ECH (mobile `SmartAuto.kt` OPEN ladder);
-    /// a filtered one still gets it on its hardened MASQUE rungs.
+    /// Manual MASQUE (mobile 1.7.0 `directPlan`): as configured → HTTP/2 (TCP
+    /// carrier) → anti-DPI with HTTP/2 + TLS fragmentation.
     #[test]
-    fn ech_is_only_used_where_the_network_filters_sni() {
-        let p = ConnectionProfile::default();
-        let open = NetFingerprint {
-            filtered: false,
-            udp_ok: true,
-            quic_ok: true,
+    fn manual_masque_walks_as_configured_then_h2_then_anti_dpi() {
+        let p = ConnectionProfile {
+            protocol: Protocol::Masque,
+            ..Default::default()
         };
-        assert!(build_plan(&p, open).iter().all(|c| !c.profile.ech));
-        let filtered = NetFingerprint {
-            filtered: true,
-            udp_ok: true,
-            quic_ok: true,
+        let plan = build_plan(&p, fp(false, true, true));
+        assert_eq!(plan.len(), 3, "{:?}", labels(&plan));
+        assert!(!plan[0].profile.masque_http2);
+        assert!(plan[0].timeout_ms <= 75_000);
+        assert_eq!(plan[1].label, "MASQUE · h2 (TCP carrier)");
+        assert!(plan[1].profile.masque_http2);
+        assert!(plan[1].timeout_ms <= 45_000);
+        let anti = &plan[2].profile;
+        assert!(anti.masque_http2 && anti.fragment);
+        assert_eq!(anti.noize, Noize::Firewall);
+        assert!(!anti.ech);
+        assert_eq!(plan[2].timeout_ms, p.connect_timeout_ms());
+        // A user who already chose HTTP/2 gets no separate h2 pass.
+        let q = ConnectionProfile {
+            masque_http2: true,
+            ..p.clone()
         };
-        assert!(build_plan(&p, filtered)
-            .iter()
-            .any(|c| c.profile.ech && c.profile.protocol == Protocol::Masque));
+        assert_eq!(build_plan(&q, fp(false, true, true)).len(), 2);
     }
-    // <<< AETHER-APP-FIX ech-only-where-sni-is-filtered
+
+    // >>> AETHER-APP-FIX ech-is-only-ever-the-users-choice (1.5.0)
+    /// No plan, on any network, switches ECH on by itself; a user who turned it
+    /// on keeps it on every rung.
+    #[test]
+    fn ech_is_never_switched_on_behind_the_users_back() {
+        for (filtered, udp_ok) in [(false, true), (true, true), (false, false), (true, false)] {
+            let f = fp(filtered, udp_ok, udp_ok);
+            for protocol in [Protocol::Smart, Protocol::Masque, Protocol::Mim, Protocol::Gool] {
+                let p = ConnectionProfile {
+                    protocol,
+                    ..Default::default()
+                };
+                assert!(!p.ech);
+                for c in build_plan(&p, f) {
+                    assert!(!c.profile.ech, "{:?}: {}", f.dpi_class(), c.label);
+                }
+                let on = ConnectionProfile { ech: true, ..p };
+                for c in build_plan(&on, f) {
+                    assert!(c.profile.ech, "{:?}: {}", f.dpi_class(), c.label);
+                }
+            }
+        }
+    }
+    // <<< AETHER-APP-FIX ech-is-only-ever-the-users-choice (1.5.0)
 
     // >>> AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
-    /// این تست همان ۷۵ ثانیه‌ای را می‌بندد که کاربر پای دکمهٔ Connect نشست.
-    ///
-    /// نکتهٔ درسی: نسخهٔ اول این تست ادعا می‌کرد پلهٔ ساده باید **آخرین** پله
-    /// باشد. آن ادعا غلط بود و قراردادِ ترتیبِ پروتکل‌ها را می‌شکست — CI با
-    /// `sni_filtering_keeps_wireguard_first_and_pushes_masque_last` گرفتش
-    /// (left: Wireguard, right: Masque). چیزی که باید کوتاه شود بودجه است، نه
-    /// جایگاه.
+    /// A manual protocol on a filtered network: the anti-DPI pass leads and the
+    /// plain pass keeps only a short budget at the end.
     #[test]
     fn on_a_filtered_network_the_plain_pass_only_gets_a_short_budget() {
-        let p = ConnectionProfile::default();
-        let fp = NetFingerprint {
-            filtered: true,
-            udp_ok: true,
-            quic_ok: true,
+        let p = ConnectionProfile {
+            protocol: Protocol::Wireguard,
+            ..Default::default()
         };
-        let plan = build_plan(&p, fp);
-
-        let plain: Vec<usize> = plan
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.profile.noize == Noize::Off)
-            .map(|(i, _)| i)
-            .collect();
-        assert_eq!(
-            plain.len(),
-            1,
-            "exactly one plain rung: {:?}",
-            plan.iter().map(|c| c.label.clone()).collect::<Vec<_>>()
-        );
-
-        let at = plain[0];
-        assert_ne!(at, 0, "on a filtered network the hardened pass leads");
-        assert!(
-            plan[at].timeout_ms <= LAST_RESORT_MS,
-            "the plain rung got {}ms; it used to get FIRST_PASS_MAX_MS ({}ms), which is the stall in the log",
-            plan[at].timeout_ms,
-            FIRST_PASS_MAX_MS
-        );
-
-        // و قراردادی که این اصلاح یک بار شکستش و دیگر نباید بشکند: ترتیبِ
-        // پروتکل‌ها دستِ این اصلاح نیست.
-        assert_eq!(plan[0].profile.protocol, Protocol::Wireguard);
-        assert_eq!(plan.last().unwrap().profile.protocol, Protocol::Masque);
+        let plan = build_plan(&p, fp(true, true, true));
+        assert_eq!(plan.len(), 2, "{:?}", labels(&plan));
+        assert_ne!(plan[0].profile.noize, Noize::Off);
+        assert_eq!(plan[1].profile.noize, Noize::Off);
+        assert!(plan[1].timeout_ms <= LAST_RESORT_MS);
     }
 
-    /// روی شبکهٔ سالم هیچ‌چیز عوض نشده: پاسِ ساده اول است و بودجهٔ کاملِ
-    /// پاسِ اول را دارد.
     #[test]
     fn on_a_healthy_network_the_plain_pass_still_leads() {
-        let p = ConnectionProfile::default();
-        let fp = NetFingerprint {
-            filtered: false,
-            udp_ok: true,
-            quic_ok: true,
+        let p = ConnectionProfile {
+            protocol: Protocol::Wireguard,
+            ..Default::default()
         };
-        let plan = build_plan(&p, fp);
+        let plan = build_plan(&p, fp(false, true, true));
         assert_eq!(plan[0].profile.noize, Noize::Off);
         assert!(plan[0].timeout_ms > LAST_RESORT_MS);
     }
     // <<< AETHER-APP-FIX plain-pass-goes-last-on-a-filtered-network
+
+    /// Per-network memory re-orders the ladder: the proven tactic opens it.
+    #[test]
+    fn memory_reorders_the_serial_ladder() {
+        let e = crate::smart_plus::memory::Entry {
+            tactic_id: Some("mim".into()),
+            proven_at: 1_000,
+            failed_at: Default::default(),
+        };
+        let plan = build_plan_with_memory(
+            &ConnectionProfile::default(),
+            NetFingerprint::default(),
+            Some(&e),
+            1_000,
+        );
+        assert_eq!(plan[0].tactic, Some("mim"));
+    }
+
+    /// The serial ladder holds every catalogue tactic once, then the two last resorts.
+    #[test]
+    fn the_ladder_is_the_whole_catalogue_plus_two_last_resorts() {
+        for gool_mode in [GoolMode::Modern, GoolMode::Classic] {
+            let p = ConnectionProfile {
+                gool_mode,
+                ..Default::default()
+            };
+            let plan = build_plan(&p, NetFingerprint::default());
+            assert_eq!(plan.len(), 10, "{:?}", labels(&plan));
+            assert_ne!(
+                plan[0].profile.protocol == Protocol::Wireguard,
+                plan[1].profile.protocol == Protocol::Wireguard,
+                "the first two rungs come from the two families"
+            );
+            let mut ids: Vec<_> = plan[..8].iter().map(|c| c.tactic.unwrap()).collect();
+            ids.sort();
+            ids.dedup();
+            assert_eq!(ids.len(), 8);
+        }
+    }
 }

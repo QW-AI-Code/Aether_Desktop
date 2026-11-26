@@ -15,7 +15,7 @@ export function createPresetSelector() {
   const action=async(action,id=null,name=null)=>{try {
     data=await invoke('preset_action',{action,id,name});
     const profile=await invoke('get_profile');if(profile)applyProfileSnapshot(profile);paint()
-  }catch(error){toast(String(error))}}
+  }catch(error){toast(t(String(error)))}}
   const naming=(preset=null)=>{
     const m=openModal({title:t(preset?'Rename profile':'Save current settings as a new profile'),onEscape:()=>m.close()})
     const input=document.createElement('input');input.className='input';input.maxLength=40;input.value=preset?.name||'';input.setAttribute('aria-label',t('Name'));m.body.append(input)

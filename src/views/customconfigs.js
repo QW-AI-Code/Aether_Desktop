@@ -22,6 +22,8 @@ import { toast } from '../ui/toast.js'
 import { emit, app, saveProfile } from '../main.js'
 import { openModal, modalButton, modalNote, confirmModal } from '../ui/modal.js'
 import { icon } from '../ui/icons.js'
+import { autoFit } from '../ui/fit.js'
+import { smartGateCard } from '../ui/smartgate.js'
 import { onScan, scanState, startScan, stopScan, scanLineFor, groupProgressText, dismissScanResult } from './cleanip.js'
 
 const EMPTY = { enabled: false, mode: 'SOLO', modeLabel: 'Config', activeId: null, modes: [], configs: [], max: 500, groups: [], tabNames: {}, hiddenTabs: [], subscriptions: [] }
@@ -45,6 +47,11 @@ function setTab(id) { currentTab = id; lsSet(TAB_KEY, id) }
 /** Automatic ping sort (default on). Off keeps the import order. */
 export function sortByPing() { return lsGet(SORT_KEY) !== '0' }
 export function setSortByPing(on) { lsSet(SORT_KEY, on ? '1' : '0') }
+// 1.5.0 (same version): order by ping, or by the measured download / upload speed.
+const SORT_BY_KEY = 'aether.cc.sortBy'
+export const SORT_MODES = ['ping', 'download', 'upload']
+export function sortMode() { const v = lsGet(SORT_BY_KEY); return SORT_MODES.includes(v) ? v : 'ping' }
+export function setSortMode(v) { lsSet(SORT_BY_KEY, SORT_MODES.includes(v) ? v : 'ping') }
 
 // ------------------------------------------------------------- display helpers (1.4.0)
 //
@@ -105,11 +112,17 @@ export function pingClass(r) {
   if (!Number.isFinite(r.ms) || r.ms < 0) return 'is-muted'
   return r.ms < 150 ? 'is-good' : r.ms <= 300 ? 'is-slow' : 'is-bad'
 }
-export function catalogRows(configs, tab, pings = PING, subscriptions = CC.subscriptions, sorted = true) {
+export function catalogRows(configs, tab, pings = PING, subscriptions = CC.subscriptions, sorted = true, mode = 'ping', speeds = SPEED) {
   return configs.filter((c) => tab === 'all' || (tab === 'format:npvt' ? !c.groupId && c.format === 'NPVT' : tab === 'format:v2ray' ? !c.groupId && c.format !== 'NPVT' : tab.startsWith('sub:') ? (subscriptions || []).find(s => s.id === tab)?.configIds?.includes(c.id) : c.groupId === tab))
     .sort((a,b) => {
       if (!sorted) return 0
       const ms = (c) => { const p=pings.get(c.id); return p && !p.pending && Number.isFinite(p.ms) && p.ms >= 0 ? p.ms : Infinity }
+      // Speed orders: measured servers first, fastest at the top; the rest by ping.
+      const bps = (c) => { const r=speeds?.get?.(c.id); const v = r && !r.running ? (mode === 'upload' ? r.uploadBps : r.downloadBps) : -1; return Number.isFinite(v) && v > 0 ? v : -1 }
+      if (mode === 'download' || mode === 'upload') {
+        const d = bps(b) - bps(a)
+        if (d) return d
+      }
       return ms(a)-ms(b) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
     })
 }
@@ -181,6 +194,35 @@ async function speedOne(c) {
     SPEED.delete(c.id)
     notifyWatchers()
     toast(errorText(e))
+  }
+}
+
+// 1.5.0 (same version): speed test of the whole tab, one server after another
+// (parallel tests would share one uplink and measure each other). Servers whose
+// last ping failed are skipped.
+let speedAllBusy = false
+async function speedAll(configs) {
+  if (speedAllBusy || !configs.length) return
+  const ok = await confirmModal({
+    title: t('Speed test all'),
+    body: t('This test sends synthetic data through this server only and may use approximately 10 MiB per attempt. Mobile data charges may apply. No personal files are uploaded.'),
+    ok: t('Start test'),
+    cancel: t('Cancel'),
+  })
+  if (!ok) return
+  speedAllBusy = true
+  notifyWatchers()
+  try {
+    for (const c of configs) {
+      const p = PING.get(c.id)
+      if (p && !p.pending && Number.isFinite(p.ms) && p.ms < 0) continue
+      SPEED.set(c.id, { id: c.id, running: true, downloadBps: -1, uploadBps: -1 })
+      notifyWatchers()
+      try { adoptSpeed(await invoke('cc_speed_test', { id: c.id })) } catch (e) { SPEED.delete(c.id); notifyWatchers() }
+    }
+  } finally {
+    speedAllBusy = false
+    notifyWatchers()
   }
 }
 
@@ -303,6 +345,20 @@ export function handleDroppedPaths(paths) {
   return list.length
 }
 
+/**
+ * فایل‌هایی که ویندوز با «Open with» یا دابل‌کلیک به برنامه داده (`openfile.rs`).
+ * برخلافِ رها کردن، لازم نیست صفحهٔ کانفیگ‌ها باز باشد؛ همان مسیرِ `cc_import_path`
+ * (با پرسیدنِ رمز) اجرا می‌شود. تعدادِ پذیرفته‌شده.
+ */
+export function importOpenedPaths(paths) {
+  wireOnce()
+  const list = (Array.isArray(paths) ? paths : [])
+    .filter((p) => typeof p === 'string' && p.trim())
+    .filter((p) => freshDrop(baseName(p)))
+  if (list.length) importPaths(list)
+  return list.length
+}
+
 /** `File`هایی که خودِ WebView تحویل داده؛ تعدادِ پذیرفته‌شده. */
 export function handleDroppedFiles(files) {
   setDropOver(false)
@@ -366,6 +422,10 @@ export async function refreshCustomConfigs() {
     adopt(null)
   }
 }
+
+/** 1.5.0 (same version): the chain builder reads and updates the same state. */
+export function customState() { return CC }
+export function applyCustomView(view) { adopt(view) }
 
 export function onCustomConfigs(fn) {
   watchers.add(fn)
@@ -806,11 +866,28 @@ function configRow(c, activeId, index = 0, sid = '') {
       <span class="ccfg__scan" hidden><span class="ccfg__scanbar"><span class="ccfg__scanfill"></span></span><span class="ccfg__scantext"></span></span>
       ${SPEED.has(c.id) ? `<span class="ccfg__speed ltr${SPEED.get(c.id).running ? ' is-running' : ''}" dir="auto">${esc(speedText(SPEED.get(c.id)))}</span>` : ''}
       ${c.expiresAt ? `<span class="ccfg__note">${esc(expiryText(c))}</span>` : ''}
+    </span>
+    <span class="ccfg__quickbar">
+      <button type="button" class="ccfg__quick ccfg__quick--ping" aria-label="${esc(t('Test ping'))}" title="${esc(t('Test ping'))}">${QUICK_PING_ICON}</button>
+      <button type="button" class="ccfg__quick ccfg__quick--speed" aria-label="${esc(t('Download / upload speed test'))}" title="${esc(t('Download / upload speed test'))}">${QUICK_SPEED_ICON}</button>
+      <button type="button" class="ccfg__quick ccfg__quick--delete" aria-label="${esc(t('Delete'))}" title="${esc(t('Delete'))}">${QUICK_DELETE_ICON}</button>
     </span>`
   paintScanLine(row, scanLineFor(c.id))
+  // 1.5.0 (same version): the whole status always shows — the font shrinks to fit.
+  autoFit(row.querySelector('.ccfg__chip.ccfg__ping'), { min: 8 })
   const pick = async () => { adopt(await invoke('cc_select', { id: c.id })) }
   row.querySelector('.ccfg__actions').addEventListener('click', (ev) => { ev.stopPropagation(); openServerMenu(c, pick) })
   row.querySelector('.ccfg__actions').addEventListener('keydown', (ev) => { ev.stopPropagation() })
+  // 1.5.0 (same version): one-click actions, without opening the server menu.
+  const quick = (cls, fn) => {
+    const b = row.querySelector(cls)
+    if (!b) return
+    b.addEventListener('click', (ev) => { ev.stopPropagation(); fn() })
+    b.addEventListener('keydown', (ev) => { ev.stopPropagation() })
+  }
+  quick('.ccfg__quick--ping', () => pingOne(c))
+  quick('.ccfg__quick--speed', () => speedOne(c))
+  quick('.ccfg__quick--delete', () => deleteConfig(c))
   const sb = row.querySelector('.ccfg__scanbtn')
   if (sb) {
     sb.addEventListener('click', (ev) => { ev.stopPropagation(); startScan([c.id]) })
@@ -823,11 +900,17 @@ function configRow(c, activeId, index = 0, sid = '') {
   return row
 }
 
+const QUICK_PING_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><path d="M20 4v5h-5"/></svg>'
+// 1.5.0 (same version): the same speedometer as the mobile app (Material
+// `Icons.Rounded.Speed`), instead of the up/down arrows that looked like "sort".
+const QUICK_SPEED_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></svg>'
+const QUICK_DELETE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12h10l1-12M9 7V4h6v3"/></svg>'
 const SPEED_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 17a9 9 0 1 1 15.6 0"/><path d="M12 13l4-4"/><circle cx="12" cy="13" r="1.2" fill="currentColor"/></svg>'
 
 /** ۱.۴.۰-ui: همان گزینه‌های موبایل ۱.۶.۰ — ۶۰، ۱۸۰، ۳۰۰، ۶۰۰، ۱۸۰۰، ۳۶۰۰ ثانیه
  *  (هسته ۳۰ تا ۳۶۰۰ را می‌پذیرد؛ مقدار ذخیره‌شدهٔ خارج از فهرست هم نشان داده می‌شود). */
 const HEALTH_CHOICES = [60, 180, 300, 600, 1800, 3600]
+const SORT_LABELS = { ping: 'Ping', download: 'Download speed', upload: 'Upload speed' }
 function healthOptions() {
   const cur = app.profile?.customHealthSecs
   return Number.isFinite(cur) && cur >= 30 && cur <= 3600 && !HEALTH_CHOICES.includes(cur)
@@ -878,20 +961,20 @@ export function renderCustomConfigs() {
       </div>
     </div>
 
+    <div class="scard-group"><div class="sethub__card scard scard--fields">${smartGateCard(t, esc)}</div></div>
+
     <div class="scard-group"><div class="sethub__card scard scard--fields">
-      <section class="field field--row">
-        <div>
-          <span class="field__label">${esc(t('Verify connection'))}</span>
-          <span class="field__hint">${esc(t('Only skips the initial check; core startup and health monitoring stay enabled.'))}</span>
-        </div>
-        <button class="switch cc-verify ${app.profile?.customVerifyConnection!==false?'is-on':''}" role="switch" aria-checked="${app.profile?.customVerifyConnection!==false}"><span class="switch__knob"></span></button>
-      </section>
       <section class="field field--row"><div><span class="field__label">${esc(t('Sort servers by ping'))}</span><span class="field__hint">${esc(t('Off keeps the original order of the tab.'))}</span></div><button class="switch cc-sort ${sortByPing()?'is-on':''}" role="switch" aria-checked="${sortByPing()}"><span class="switch__knob"></span></button></section>
       <section class="field field--row"><span class="field__label">${esc(t('Auto-select lowest delay'))}</span><button class="switch cc-auto ${app.profile?.customAutoSelect?'is-on':''}" role="switch" aria-checked="${!!app.profile?.customAutoSelect}"><span class="switch__knob"></span></button></section>
       <section class="field field--row cc-health-card">
         <span class="cc-health__icon" aria-hidden="true">${SPEED_ICON}</span>
         <label class="field__label cc-health__label" for="cc-health">${esc(t('Health interval'))}</label>
         <span class="cc-health__chip ltr" dir="ltr"><span class="cc-health__chip-text"></span><select id="cc-health" class="cc-health" aria-label="${esc(t('Health interval'))}">${healthOptions().map((sec)=>`<option value="${sec}" ${sec===(app.profile?.customHealthSecs??300)?'selected':''}>${esc(healthText(sec))}</option>`).join('')}</select></span>
+      </section>
+      <section class="field field--row cc-health-card cc-sort-card">
+        <span class="cc-health__icon" aria-hidden="true">${SPEED_ICON}</span>
+        <label class="field__label cc-health__label" for="cc-sortby">${esc(t('Sort servers by'))}</label>
+        <span class="cc-health__chip cc-sort__chip"><span class="cc-sort__chip-text"></span><select id="cc-sortby" class="cc-sortby" aria-label="${esc(t('Sort servers by'))}">${SORT_MODES.map((m)=>`<option value="${m}" ${m===sortMode()?'selected':''}>${esc(t(SORT_LABELS[m]))}</option>`).join('')}</select></span>
       </section>
     </div></div>
     <input type="file" class="cc-qr-input" accept="image/png,image/jpeg,image/webp" hidden>
@@ -909,6 +992,7 @@ export function renderCustomConfigs() {
           <button type="button" class="cc-add">${icon('add',18)}${esc(t('Add config'))}</button>
         </div>
         <button type="button" class="cc-scan-tab">${esc(t('Scan tab'))}</button>
+        <button type="button" class="cc-scan-tab cc-speed-all">${esc(t('Speed test all'))}</button>
       </div>
       <div class="cc-tabs-bar">
         <button type="button" class="cc-new-tab" aria-label="${esc(t('New tab'))}" title="${esc(t('New tab'))}">${icon('add',22)}</button>
@@ -939,6 +1023,8 @@ export function renderCustomConfigs() {
   let paintScanUi = null // تعریفش پایین‌تر است (به tabIds/scanTabBtn نیاز دارد)
   const danger = root.querySelector('.cc-danger-group')
   const pingAllBtn = root.querySelector('.cc-ping-all')
+  const speedAllBtn = root.querySelector('.cc-speed-all')
+  speedAllBtn.onclick = () => speedAll(catalogRows(CC.configs, currentTab, PING, CC.subscriptions, false))
   const pingCard = root.querySelector('.cc-ping-card')
   const healthSel = root.querySelector('.cc-health')
   const healthChip = root.querySelector('.cc-health__chip-text')
@@ -999,7 +1085,7 @@ export function renderCustomConfigs() {
       tabBox.append(wrap)
     }
     tabBox.scrollLeft=tabScroll
-    const visible=catalogRows(CC.configs,currentTab,PING,CC.subscriptions,sortByPing())
+    const visible=catalogRows(CC.configs,currentTab,PING,CC.subscriptions,sortByPing() || sortMode()!=='ping',sortMode(),SPEED)
     const sids=assignServerIds(currentTab,catalogRows(CC.configs,currentTab,PING,CC.subscriptions,false).map((c)=>c.id))
     list.replaceChildren(...(visible.length
       ? visible.map((c, i) => configRow(c, CC.activeId, i, sids[c.id]))
@@ -1010,6 +1096,9 @@ export function renderCustomConfigs() {
     pingCard.hidden = CC.configs.length === 0
     pingAllBtn.disabled = pingAllBusy
     pingAllBtn.querySelector('.cc-ping-all__title').textContent = pingAllBusy ? t('Testing…') : t('Test all')
+    speedAllBtn.hidden = CC.configs.length === 0
+    speedAllBtn.disabled = speedAllBusy || pingAllBusy
+    speedAllBtn.textContent = speedAllBusy ? t('Testing speeds…') : t('Speed test all')
   }
   // صفحه‌ای که کاربر از آن بیرون رفته (از DOM جدا شده) دیگر گوش نمی‌دهد.
   const unwatch = onCustomConfigs(() => {
@@ -1019,6 +1108,10 @@ export function renderCustomConfigs() {
 
   root.querySelector('.cc-auto').onclick=async()=>{const on=!app.profile?.customAutoSelect;await saveProfile({customAutoSelect:on});root.querySelector('.cc-auto').classList.toggle('is-on',on);root.querySelector('.cc-auto').setAttribute('aria-checked',String(on))}
   healthSel.onchange=(e)=>{healthChip.textContent=healthText(Number(e.target.value));saveProfile({customHealthSecs:Number(e.target.value)})}
+  const sortSel = root.querySelector('.cc-sortby')
+  const sortChip = root.querySelector('.cc-sort__chip-text')
+  sortChip.textContent = t(SORT_LABELS[sortMode()])
+  sortSel.onchange = (e) => { setSortMode(e.target.value); sortChip.textContent = t(SORT_LABELS[sortMode()]); sync() }
   root.querySelector('.cc-sort').onclick=()=>{const on=!sortByPing();setSortByPing(on);const b=root.querySelector('.cc-sort');b.classList.toggle('is-on',on);b.setAttribute('aria-checked',String(on));sync()}
   root.querySelector('.cc-new-tab').onclick=()=>saveTab()
   // اسکن IP تمیزِ تبِ فعلی: شناسهٔ سرورهای همین تب صریحاً فرستاده می‌شود (نه همهٔ کانفیگ‌ها).
@@ -1058,12 +1151,6 @@ export function renderCustomConfigs() {
   }
   scanTabBtn.onclick = () => { if (scanState().running) stopScan(); else startScan(tabIds()) }
   onScan(paintScanUi, root)
-  root.querySelector('.cc-verify').onclick=async(e)=>{
-    const on=app.profile?.customVerifyConnection===false
-    await saveProfile({customVerifyConnection:on})
-    root.querySelector('.cc-verify').setAttribute('aria-checked',String(on))
-    root.querySelector('.cc-verify').classList.toggle('is-on',on)
-  }
   sw.addEventListener('click', async () => {
     adopt(await invoke('cc_set_enabled', { enabled: !CC.enabled }))
   })

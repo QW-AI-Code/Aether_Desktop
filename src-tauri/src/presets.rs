@@ -71,7 +71,7 @@ impl Collection {
             entry["custom"]=json!({"configId":live.config_id,"configName":live.config_name,"enabled":live.enabled,"mode":live.mode});
         }
         let text=serde_json::to_string_pretty(&json!({
-            "schemaVersion":1,"appVersion":"1.4.0",
+            "schemaVersion":1,"appVersion":"1.5.0",
             "presets":[entry]
         })).map_err(|e|e.to_string())?;
         if text.len()>MAX_TRANSFER { return Err("Export is too large".into()); }

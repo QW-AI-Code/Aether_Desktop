@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "aether-desktop"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "anyhow",
  "chacha20poly1305",

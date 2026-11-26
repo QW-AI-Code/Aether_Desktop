@@ -351,6 +351,27 @@ pub fn has_xtls_flow(o: &Map<String, Value>) -> bool {
     })
 }
 
+/// The resolvers a DIRECT hop gives Xray — `XrayConfigBuilder.directDns` on
+/// Android: the network's own (see [`super::netdns`]), then 1.1.1.1 and 8.8.8.8,
+/// then `localhost` (the system resolver). Real delay, speed test and the
+/// session itself use the same list, so a ping that succeeds means the session
+/// resolves the server the same way.
+pub fn direct_dns(network_dns: &[String]) -> Vec<String> {
+    let mut v: Vec<String> = Vec::new();
+    for d in network_dns
+        .iter()
+        .map(|d| d.trim().to_string())
+        .filter(|d| is_dns_ip(d))
+        .chain(FALLBACK_DNS.iter().map(|s| s.to_string()))
+    {
+        if !v.contains(&d) {
+            v.push(d);
+        }
+    }
+    v.push("localhost".into());
+    v
+}
+
 /// outboundِ کاربر، پاک‌سازی‌شده و با `tag` دلخواه، برای پینگِ واقعی: مستقیم
 /// (بی dialerProxy)، DNSِ سرور از Xray (`UseIPv4v6`)، بی Mux.
 pub fn direct_outbound(outbound: &str, tag: &str) -> Result<Value, String> {
@@ -387,6 +408,15 @@ pub fn server_endpoint(outbound: &str) -> Option<(String, i64)> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn direct_dns_puts_the_network_first_like_android() {
+        assert_eq!(direct_dns(&Vec::<String>::new()), vec!["1.1.1.1", "8.8.8.8", "localhost"]);
+        assert_eq!(
+            direct_dns(&["192.168.1.1".to_string(), "8.8.8.8".to_string(), "bad".to_string()]),
+            vec!["192.168.1.1", "8.8.8.8", "1.1.1.1", "localhost"]
+        );
+    }
+
     use super::*;
     use crate::custom::parser;
     use crate::custom::ConfigSource;

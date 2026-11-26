@@ -449,8 +449,12 @@ pub const DEFAULT_MTU: u32 = 1280;
 pub const MTU_PRESETS: [u32; 5] = [1280, 1380, 1420, 1500, 8500];
 pub const KEEPALIVE_PRESETS: [u32; 4] = [0, 10, 25, 45];
 
-fn default_verify() -> bool { true }
 fn default_health_secs()->u64 {300}
+/// 1.5.0 (same version): "Auto-select lowest delay" is on by default for custom configs.
+fn default_auto_select() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ConnectionProfile {
@@ -469,11 +473,10 @@ pub struct ConnectionProfile {
     pub scan_mode: ScanMode,
     pub ip_version: IpVersion,
     pub quick_reconnect: bool,
-    #[serde(default = "default_verify")]
-    pub verify_connection: bool,
-    #[serde(default = "default_verify")]
-    pub custom_verify_connection: bool,
-    #[serde(default)]
+    // 1.5.0 (same version): `verify_connection` / `custom_verify_connection` were
+    // removed - every session passes the smart connection gate. Old profile.json
+    // files that still carry them load fine (unknown fields are ignored).
+    #[serde(default = "default_auto_select")]
     pub custom_auto_select: bool,
     #[serde(default="default_health_secs")]
     pub custom_health_secs: u64,
@@ -692,9 +695,7 @@ impl Default for ConnectionProfile {
             scan_mode: ScanMode::Balanced,
             ip_version: IpVersion::V4,
             quick_reconnect: true,
-            verify_connection: true,
-            custom_verify_connection: true,
-            custom_auto_select:false,
+            custom_auto_select:true,
             custom_health_secs:300,
             fast_endpoint_only: false,
             ech_config: String::new(),

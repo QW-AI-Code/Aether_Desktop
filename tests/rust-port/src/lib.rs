@@ -6,6 +6,7 @@
 #[path="../../../src-tauri/src/secret_store.rs"] pub mod secret_store;
 #[path="../../../src-tauri/src/geoip.rs"] pub mod geoip;
 #[path="../../../src-tauri/src/probe.rs"] pub mod probe;
+#[path="../../../src-tauri/src/readiness.rs"] pub mod readiness;
 #[path="../../../src-tauri/src/mini_https.rs"] pub mod mini_https;
 #[path="../../../src-tauri/src/custom/mod.rs"] pub mod custom;
 pub mod engine {pub const LOCAL_SOCKS_PORT:u16=1819;pub const CHAIN_SOCKS_PORT:u16=1825;pub const TOR_SOCKS_PORT:u16=1820;pub fn exit_socks_port()->u16 {1819}}

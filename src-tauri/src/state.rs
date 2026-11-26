@@ -13,7 +13,7 @@
 //!   ۳. فقط بعد از آن، مسیر داده برپا می‌شود (معادل VpnService.establish):
 //!      پل HTTP/SOCKS محلی + پروکسی سیستمی ویندوز؛ Wintun هم اگر ممکن بود
 //!      (شکست Wintun دیگر کل اتصال را نمی‌کُشد — فقط یک هشدار لاگ می‌شود).
-//!   ۴. Verifying: خودآزمای ۴ مرحله‌ای (Diagnostics.kt) در ترد پس‌زمینه
+//!   ۴. Proving: دروازهٔ هوشمند اتصال (اثبات عبور داده) در ترد پس‌زمینه
 //!   ۵. فقط بعد از قبولی همهٔ بررسی‌ها، Connected اعلام می‌شود
 //!   ۶. شکست هر پله ← پلهٔ بعدی نردبان (معادل runLadder)، نه گیرکردن ابدی.
 
@@ -40,6 +40,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const TAG: &str = "state";
+// >>> AETHER-APP-PATCH smart-1.5.0 (mobile 1.7.0)
+const SMART_RACING: &str = "Testing every protocol side by side…";
+const SMART_COMPARING: &str = "Comparing the working routes (ping and speed)…";
+const SMART_EXHAUSTED: &str = "Smart tested every protocol fairly, but none reached the internet on this network right now. Unplug the internet/modem for a minute, plug it back in and try again.";
+const NO_GATEWAY_IN_TIME: &str = "No working gateway was found in time for this strategy.";
+/// The readiness gate never gets less than this, even late in a rung.
+const SERVE_GATE_MIN_MS: u64 = 8_000;
+// <<< AETHER-APP-PATCH smart-1.5.0
 
 // >>> AETHER-APP-PATCH custom-configs
 // نشستِ کانفیگِ سفارشی (پورتِ `connectCustom` اندروید ۱.۵.۰) — رجوع به
@@ -97,7 +105,11 @@ pub enum ConnectionState {
     Disconnected,
     StartingEngine,
     Connecting,
-    Verifying,
+    /// 1.5.0 (same version): the smart connection gate is proving that real data
+    /// crosses the tunnel (replaces the old "Verifying" state). The alias keeps
+    /// any persisted or in-flight "VERIFYING" readable.
+    #[serde(alias = "VERIFYING")]
+    Proving,
     Connected,
     Reconnecting,
     Disconnecting,
@@ -110,7 +122,7 @@ impl ConnectionState {
             self,
             Self::StartingEngine
                 | Self::Connecting
-                | Self::Verifying
+                | Self::Proving
                 | Self::Reconnecting
                 | Self::Disconnecting
         )
@@ -300,7 +312,7 @@ pub struct AetherController {
     deadline: Option<Instant>,
     reconnect_at: Option<Instant>,
     /// نتیجهٔ خودآزمای در حال اجرا (ترد پس‌زمینه — UI فریز نمی‌شود).
-    verify_slot: Option<Arc<Mutex<Option<diagnostics::SelfTestOutcome>>>>,
+    gate_slot: Option<Arc<Mutex<Option<diagnostics::SelfTestOutcome>>>>,
     ip_slot: Arc<Mutex<IpSlot>>,
     /// پینگ زنده: نتیجهٔ آخرین اندازه‌گیری دوره‌ای در ترد پس‌زمینه.
     latency_slot: Arc<Mutex<Option<u64>>>,
@@ -334,6 +346,16 @@ pub struct AetherController {
     custom: Option<state_custom::CustomRun>,
     smart_plus: Option<crate::smart_plus::Session>,
     smart_plus_done: bool,
+    // >>> AETHER-APP-PATCH engine-readiness-gate (1.5.0)
+    /// The attempt's port is bound; waiting until the engine really serves it.
+    serve_gate: Option<crate::readiness::Gate>,
+    /// This attempt already passed the gate (reset on every rung transition).
+    serve_gate_passed: bool,
+    /// Network key of a serial Smart ladder, so its winner/failures are remembered.
+    ladder_key: Option<String>,
+    /// 1.5.0 (same version): what the Smart brain learned on the serial ladder.
+    ladder_brain: crate::smart_plus::brain::Knowledge,
+    // <<< AETHER-APP-PATCH engine-readiness-gate (1.5.0)
     fresh_selection: Option<crate::custom::realdelay::ProbeTask>,
     fresh_basis: Option<crate::custom::store::State>,
     // <<< AETHER-APP-PATCH custom-configs
@@ -438,7 +460,7 @@ impl AetherController {
             attempts: 0,
             deadline: None,
             reconnect_at: None,
-            verify_slot: None,
+            gate_slot: None,
             ip_slot,
             latency_slot: Arc::new(Mutex::new(None)),
             latency_probe_at: None,
@@ -455,6 +477,10 @@ impl AetherController {
             custom: None,
             smart_plus:None,
             smart_plus_done:false,
+            serve_gate: None,
+            serve_gate_passed: false,
+            ladder_key: None,
+            ladder_brain: crate::smart_plus::brain::Knowledge::default(),
             fresh_selection:None,
             fresh_basis:None,
         };
@@ -909,10 +935,20 @@ impl AetherController {
                 // Auto classify the network as UDP-blocked and always lead with
                 // MASQUE.
                 let fp = if fingerprint {
+                    // 1.5.0 (mobile 1.7.0): QUIC Version-Negotiation probe to the
+                    // MASQUE gateways themselves, in parallel with the others.
+                    let quic_probe = std::thread::Builder::new()
+                        .name("aether-quic-masque".into())
+                        .spawn(probe::masque_quic_reachable)
+                        .ok();
+                    let filtered = probe::network_looks_filtered();
+                    let udp_ok = probe::udp_egress_ok();
+                    let quic_ok = probe::quic_carrier_ok();
                     smart_auto::NetFingerprint {
-                        filtered: probe::network_looks_filtered(),
-                        udp_ok: probe::udp_egress_ok(),
-                        quic_ok: probe::quic_carrier_ok(),
+                        filtered,
+                        udp_ok,
+                        quic_ok,
+                        quic_reachable: quic_probe.and_then(|h| h.join().ok()).flatten(),
                     }
                 } else {
                     smart_auto::NetFingerprint::default()
@@ -928,7 +964,10 @@ impl AetherController {
     /// Builds the ladder once the fingerprint is in, then launches its first rung.
     fn launch_plan(&mut self, fingerprint: smart_auto::NetFingerprint) -> Result<()> {
         if !self.smart_plus_done && self.custom.is_none() && crate::smart_plus::eligible(&self.profile){
-            self.smart_plus_done=true;self.smart_plus=Some(crate::smart_plus::Session::new(&self.profile,fingerprint,&self.data_dir));
+            // 1.5.0: an Iranian direct IP already known (no extra request) makes
+            // MASQUE over HTTP/2 lead - the only carrier that works in Tehran.
+            let prefer_tcp = self.ip_slot.lock().info.as_ref().map(|i| !i.via_tunnel && i.country_code.as_deref().map(|c| c.eq_ignore_ascii_case("IR")).unwrap_or(false)).unwrap_or(false);
+            self.smart_plus_done=true;self.smart_plus=Some(crate::smart_plus::Session::new(&self.profile,fingerprint,&self.data_dir,prefer_tcp));
             return self.smart_plus_next();
         }
         // استیج ۱ نردبانِ Smart Auto و سخت‌سازی ضد‌DPI را دست‌نخورده نگه می‌دارد،
@@ -941,8 +980,21 @@ impl AetherController {
         } else {
             self.profile.clone()
         };
+        self.ladder_key = None;
+        self.ladder_brain = crate::smart_plus::brain::initial(
+            fingerprint.udp_ok,
+            fingerprint.quic_reachable,
+            fingerprint.filtered,
+        );
         self.plan = if self.custom_upstream_engine() {
             state_custom::custom_upstream_plan(&planning_profile)
+        } else if planning_profile.protocol == Protocol::Smart && self.custom.is_none() {
+            // 1.5.0: the serial ladder is ordered by the same per-network memory
+            // as the race, and remembers its winner.
+            let net = crate::smart_plus::network::current();
+            let memory = crate::smart_plus::memory::recall(&self.data_dir, &net.key);
+            self.ladder_key = Some(net.key);
+            smart_auto::build_plan_with_memory(&planning_profile, fingerprint, memory.as_ref(), crate::custom::now_millis())
         } else {smart_auto::build_plan(&planning_profile, fingerprint)};
         self.plan_index = 0;
         self.launch_candidate()
@@ -951,23 +1003,42 @@ impl AetherController {
     fn smart_plus_next(&mut self)->Result<()> {
         let step=self.smart_plus.as_mut().and_then(|s|s.steps.pop_front());
         match step {
-            Some(crate::smart_plus::plan::Step::Remembered(t))=>{
-                self.plan=vec![self.smart_plus.as_mut().unwrap().candidate(t,false)];self.plan_index=0;match self.launch_candidate(){Ok(())=>Ok(()),Err(e)=>{DiagnosticsLog::w("smart+",&e.to_string());self.smart_plus.as_mut().unwrap().failed(&self.data_dir);self.cleanup_native(true);self.smart_plus_next()}}
-            },
-            Some(crate::smart_plus::plan::Step::Race(lanes))=>{
+            Some(crate::smart_plus::Step::Confirm(t))=>self.smart_plus_launch(t,false),
+            Some(crate::smart_plus::Step::LastResort(t))=>self.smart_plus_launch(t,true),
+            Some(crate::smart_plus::Step::Race(lanes))=>{
                 let s=self.smart_plus.as_mut().unwrap();s.current=None;
-                s.race=Some(crate::smart_plus::RaceTask::spawn(s.user.clone(),lanes,&self.engine,self.data_dir.clone(),s.key.clone()));
-                self.deadline=None;self.set_state(ConnectionState::Connecting,"Smart: racing independent connection tactics…");Ok(())
+                s.race=Some(crate::smart_plus::RaceTask::spawn(s.user.clone(),lanes,&self.engine,self.data_dir.clone(),s.key.clone(),s.brain.clone()));
+                self.deadline=None;self.set_state(ConnectionState::Connecting,SMART_RACING);Ok(())
             },
-            None=>{let fp=self.smart_plus.take().map(|s|s.fingerprint).unwrap_or_default();DiagnosticsLog::i("smart+","Race/confirmation exhausted; using the complete Smart ladder");self.launch_plan(fp)}
+            None=>{
+                self.smart_plus=None;
+                DiagnosticsLog::w("smart+","Smart: race, confirmation and last resort are exhausted.");
+                self.fail(SMART_EXHAUSTED);Ok(())
+            }
+        }
+    }
+    /// One ranked winner (confirmation) or one deep last-resort rung, as a normal connection.
+    fn smart_plus_launch(&mut self,t:crate::smart_plus::plan::Tactic,last_resort:bool)->Result<()> {
+        // AETHER-APP-PATCH race-own-identity: the confirming session (own identity)
+        // starts from the gateway the race lane just proved.
+        if !last_resort { self.engine.adopt_race_gateways(); }
+        self.plan=vec![self.smart_plus.as_mut().unwrap().candidate(t,last_resort)];self.plan_index=0;
+        match self.launch_candidate(){
+            Ok(())=>Ok(()),
+            Err(e)=>{DiagnosticsLog::w("smart+",&e.to_string());if let Some(s)=self.smart_plus.as_mut(){s.failed(&self.data_dir);}self.cleanup_native(true);self.smart_plus_next()}
         }
     }
     fn smart_plus_poll(&mut self)->bool {
         let Some(race)=self.smart_plus.as_mut().and_then(|s|s.race.as_mut())else{return false;};
-        let Some(winner)=race.poll()else{return true;};
+        let comparing=race.phase()==crate::smart_plus::PHASE_COMPARING;
+        let Some(ranked)=race.poll()else{
+            if comparing{self.set_state(ConnectionState::Connecting,SMART_COMPARING);}
+            return true;
+        };
         self.smart_plus.as_mut().unwrap().race=None;
-        let result=if let Some(t)=winner {let s=self.smart_plus.as_mut().unwrap();self.plan=vec![s.candidate(t,true)];self.plan_index=0;self.launch_candidate()}else{self.smart_plus_next()};
-        if let Err(e)=result{DiagnosticsLog::w("smart+",&e.to_string());if let Some(s)=self.smart_plus.as_mut(){s.failed(&self.data_dir);}self.cleanup_native(true);if let Err(e)=self.smart_plus_next(){self.fail(&e.to_string());}}true
+        self.smart_plus.as_mut().unwrap().after_race(ranked);
+        if let Err(e)=self.smart_plus_next(){self.fail(&e.to_string());}
+        true
     }
 
     /// اجرای یک پله از نردبان — معادل یک دور `runLadder`.
@@ -1713,7 +1784,7 @@ impl AetherController {
             if !self.bring_up_data_path() {
                 return;
             }
-            self.begin_verification();
+            self.begin_smart_gate();
         } else if self.past_deadline() {
             self.chain_waiting = false;
             self.advance_or_fail("The engine-managed Psiphon listener did not come up in time");
@@ -1721,16 +1792,16 @@ impl AetherController {
     }
 
     /// خودآزمای ۴ مرحله‌ای در ترد پس‌زمینه — حلقهٔ tick هرگز مسدود نمی‌شود.
-    fn begin_verification(&mut self) {
+    fn begin_smart_gate(&mut self) {
         let slot: Arc<Mutex<Option<diagnostics::SelfTestOutcome>>> = Arc::new(Mutex::new(None));
-        self.verify_slot = Some(slot.clone());
-        let verify=if self.custom.is_some(){self.profile.custom_verify_connection}else{self.profile.verify_connection};
-        if !verify {
-            DiagnosticsLog::w(TAG,"Initial connection verification disabled by user; listener/data path only. Leak protection and ongoing health monitoring remain enabled.");
-            *slot.lock()=Some(diagnostics::SelfTestOutcome{ok:true,exit:None,latency_ms:None,leak:None});
-            self.set_state(ConnectionState::Verifying,"Initial verification skipped");
-            return;
-        }
+        self.gate_slot = Some(slot.clone());
+        // >>> AETHER-APP-PATCH smart-connection-gate (1.5.0, same version)
+        // No session (Aether, Psiphon, Tor, their chains, custom configs)
+        // can skip the gate: it is the smart data proof (see
+        // `diagnostics::self_test`), fast and never fooled by a bare SOCKS5 reply.
+        // Custom configs pass the very same gate (1.5.0, same version): there is
+        // no switch any more, for any session.
+        // <<< AETHER-APP-PATCH smart-connection-gate
         let remaining = self
             .deadline
             .map(|d| d.saturating_duration_since(Instant::now()).as_millis() as u64)
@@ -1759,7 +1830,7 @@ impl AetherController {
                 *slot.lock() = Some(outcome);
             })
             .ok();
-        self.set_state(ConnectionState::Verifying, "Verifying…");
+        self.set_state(ConnectionState::Proving, "Smart gate…");
     }
 
     /// The visible state is already Disconnecting (see [`request_toggle`]); this
@@ -1776,6 +1847,7 @@ impl AetherController {
         self.watchdog_failures = 0;
         *self.watchdog_slot.lock() = None;
         *self.latency_slot.lock() = None;
+        crate::pingstats::reset();
         self.connected_at = None;
         self.endpoint = None;
         // اندپوینتِ نشستِ قبل در نشستِ تازه هیچ معنایی ندارد.
@@ -1784,7 +1856,7 @@ impl AetherController {
         self.effective_protocol = None;
         self.deadline = None;
         self.reconnect_at = None;
-        self.verify_slot = None;
+        self.gate_slot = None;
         self.chain_waiting = false;
         self.prep_slot = None;
         self.plan.clear();
@@ -1800,6 +1872,8 @@ impl AetherController {
         self.fresh_selection=None;self.fresh_basis=None;
         if let Some(s)=self.smart_plus.as_mut(){s.race=None;}
         if !preserve_kill_switch{self.smart_plus=None;}
+        // AETHER-APP-PATCH engine-readiness-gate: every attempt passes its own gate.
+        self.serve_gate=None;self.serve_gate_passed=false;
         self.custom_trace("cleanup", if preserve_kill_switch {"reconnect/rung transition; preserve kill switch"} else {"final teardown"});
         {let mut ip=self.ip_slot.lock();ip.session+=1;ip.loading=false;}
         // An abandoned attempt must not keep probing through the next one.
@@ -1950,6 +2024,24 @@ impl AetherController {
                 .map(|c| c.profile.backend == crate::profile::TransportBackend::Aether)
                 .unwrap_or(false);
         // <<< AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
+        // >>> AETHER-APP-PATCH smart-brain-ladder (1.5.0, same version)
+        // The failed engine's own account, read BEFORE the teardown.
+        let brain_verdict = self.plan.get(self.plan_index).map(|c| {
+            let ready = self.engine.readiness();
+            let remaining = self
+                .deadline
+                .map(|d| d.saturating_duration_since(Instant::now()).as_millis() as u64)
+                .unwrap_or(0);
+            let alive_ms = c.timeout_ms.saturating_sub(remaining);
+            (
+                ready.signals(),
+                ready.fatal_line().is_some(),
+                alive_ms,
+                smart_auto::rides_udp(&c.profile),
+            )
+        });
+        let engine_died = !self.engine.is_alive();
+        // <<< AETHER-APP-PATCH smart-brain-ladder
         // فقط موتور/مسیر داده را جمع می‌کنیم، وضعیت UI همچنان busy می‌ماند.
         self.cleanup_native(true);
         // >>> AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
@@ -1957,9 +2049,42 @@ impl AetherController {
             self.engine.forget_cached_gateways();
         }
         // <<< AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
-        self.verify_slot = None;
+        self.gate_slot = None;
         diagnostics::reset_checks();
         if self.smart_plus.is_some(){if let Err(e)=self.smart_plus_next(){self.fail(&e.to_string());}return;}
+        // AETHER-APP-PATCH smart-1.5.0: the serial Smart ladder records failures per network.
+        if let (Some(key), Some(id)) = (self.ladder_key.as_ref(), self.plan.get(self.plan_index).and_then(|c| c.tactic)) {
+            crate::smart_plus::memory::failure(&self.data_dir, key, id, crate::custom::now_millis());
+        }
+        // >>> AETHER-APP-PATCH smart-brain-ladder (1.5.0, same version)
+        if let Some((signals, has_fatal, alive_ms, udp)) = brain_verdict {
+            let verdict =
+                crate::smart_plus::brain::diagnose(signals, engine_died, alive_ms, udp, has_fatal);
+            if verdict == crate::smart_plus::brain::Verdict::IdentityDamaged {
+                let healed = self.engine.heal_damaged_identity();
+                DiagnosticsLog::w(
+                    TAG,
+                    &format!("Smart brain: damaged engine identity - {healed} damaged file(s) removed; retrying the same strategy."),
+                );
+                if healed > 0 {
+                    // Same rung again, now with a fresh identity.
+                    self.set_state(ConnectionState::StartingEngine, "Starting engine…");
+                    self.begin_prep(Prep::Candidate);
+                    return;
+                }
+            }
+            if self.ladder_key.is_some() && self.plan_index + 1 < self.plan.len() {
+                self.ladder_brain = self.ladder_brain.learn(verdict);
+                DiagnosticsLog::i(
+                    TAG,
+                    &format!("Smart brain: {verdict:?} | {}", self.ladder_brain.describe()),
+                );
+                let rest = self.plan.split_off(self.plan_index + 1);
+                let adapted = smart_auto::adapt_ladder(rest, &self.ladder_brain);
+                self.plan.extend(adapted);
+            }
+        }
+        // <<< AETHER-APP-PATCH smart-brain-ladder
         self.plan_index += 1;
         if self.plan_index < self.plan.len() {
             // The next rung also has to wait for the local port, so it goes back
@@ -1972,9 +2097,7 @@ impl AetherController {
         } else if self.profile.backend == crate::profile::TransportBackend::TorPsiphon {
             self.fail(&format!("Tor → Psiphon could not be established: {why}"));
         } else if self.profile.protocol == Protocol::Smart {
-            self.fail(
-                "Smart Auto tried every strategy and none passed the self-test on this network.",
-            );
+            self.fail(SMART_EXHAUSTED);
         } else {
             self.fail(
                 "This protocol could not establish a working tunnel on this network, even with anti-DPI hardening. Try Smart Auto or another protocol.",
@@ -2102,6 +2225,16 @@ impl AetherController {
                     } else {
                         "Engine exited before it opened the SOCKS5 port"
                     };
+                    // >>> AETHER-APP-PATCH engine-readiness-gate (1.5.0)
+                    // The engine's own `Error:` line says why (e.g. ECH without a key).
+                    if self.engine.was_started() {
+                        if let Some(reason) = self.engine.readiness().fatal_line() {
+                            DiagnosticsLog::e("ChainTrace", &format!("engine-fail category=died-before-serving reason={reason}"));
+                            self.advance_or_fail(&format!("The engine stopped: {reason}"));
+                            return;
+                        }
+                    }
+                    // <<< AETHER-APP-PATCH engine-readiness-gate (1.5.0)
                     self.advance_or_fail(carrier);
                     return;
                 }
@@ -2297,6 +2430,51 @@ impl AetherController {
                         }
                     }
                     // <<< AETHER-APP-FIX tor-psiphon-waits-for-psiphon
+                    // >>> AETHER-APP-PATCH engine-readiness-gate (1.5.0)
+                    // A bound port is not a serving engine: core 2.4.0 binds at start
+                    // and serves only once its tunnel is validated. Wait - for the
+                    // attempt's whole budget - until it really serves.
+                    if self.serve_gate_applies() {
+                        if self.serve_gate.is_none() {
+                            let left = self
+                                .deadline
+                                .map(|d| d.saturating_duration_since(Instant::now()).as_millis() as u64)
+                                .unwrap_or(0)
+                                .max(SERVE_GATE_MIN_MS);
+                            DiagnosticsLog::i(
+                                TAG,
+                                "SOCKS5 port is bound; waiting for the engine to start serving it.",
+                            );
+                            self.serve_gate = Some(crate::readiness::Gate::new(engine::LOCAL_SOCKS_PORT, left));
+                        }
+                        let ready = self.engine.readiness();
+                        let alive = self.engine.is_alive();
+                        let outcome = self.serve_gate.as_mut().and_then(|g| g.poll(&ready, alive));
+                        let waited = self.serve_gate.as_ref().map(|g| g.elapsed_ms()).unwrap_or(0);
+                        match outcome {
+                            None => return,
+                            Some(crate::readiness::Outcome::Ready) => {
+                                self.serve_gate = None;
+                                self.serve_gate_passed = true;
+                                DiagnosticsLog::i("ChainTrace", &format!("engine-serving after={waited}ms"));
+                                DiagnosticsLog::i(TAG, &format!("The engine serves SOCKS5 (after {waited} ms)."));
+                            }
+                            Some(crate::readiness::Outcome::Died) => {
+                                self.serve_gate = None;
+                                let reason = ready.fatal_line().unwrap_or_else(|| "no error line".into());
+                                DiagnosticsLog::e("ChainTrace", &format!("engine-fail category=died-before-serving reason={reason}"));
+                                self.advance_or_fail(&format!("The engine stopped: {reason}"));
+                                return;
+                            }
+                            Some(crate::readiness::Outcome::Timeout) => {
+                                let budget = self.serve_gate.take().map(|g| g.budget_ms()).unwrap_or(0);
+                                DiagnosticsLog::e("ChainTrace", &format!("engine-fail category=timeout-before-serving waited={waited}ms budget={budget}ms"));
+                                self.advance_or_fail(NO_GATEWAY_IN_TIME);
+                                return;
+                            }
+                        }
+                    }
+                    // <<< AETHER-APP-PATCH engine-readiness-gate (1.5.0)
                     if self.profile.is_chained() && !self.psiphon_exit_session() {
                         self.begin_chain();
                     } else {
@@ -2334,7 +2512,7 @@ impl AetherController {
                         if !self.bring_up_data_path() {
                             return;
                         }
-                        self.begin_verification();
+                        self.begin_smart_gate();
                     }
                 } else if self.past_deadline() {
                     self.advance_or_fail(
@@ -2342,10 +2520,10 @@ impl AetherController {
                     );
                 }
             }
-            ConnectionState::Verifying => {
-                let outcome = self.verify_slot.as_ref().and_then(|s| s.lock().take());
+            ConnectionState::Proving => {
+                let outcome = self.gate_slot.as_ref().and_then(|s| s.lock().take());
                 if let Some(out) = outcome {
-                    self.verify_slot = None;
+                    self.gate_slot = None;
                     if out.ok {
                         if let Some(exit) = &out.exit {
                             // >>> AETHER-APP-PATCH endpoint-is-the-first-hop
@@ -2415,7 +2593,10 @@ impl AetherController {
                             .is_some()
                             .then(|| Instant::now() + CIRCUIT_HUNT_WINDOW);
                         // <<< AETHER-APP-PATCH a-bad-circuit-is-not-a-bad-network
-                        if let Some(s)=self.smart_plus.as_mut(){s.succeeded(&self.data_dir,self.profile.verify_connection);}
+                        if let Some(s)=self.smart_plus.as_mut(){s.succeeded(&self.data_dir,true);}
+                        else if let (Some(key), Some(id)) = (self.ladder_key.take(), self.plan.get(self.plan_index).and_then(|c| c.tactic)) {
+                            crate::smart_plus::memory::remember(&self.data_dir, &key, id, crate::custom::now_millis());
+                        }
                         self.smart_plus=None;
                         self.set_state(ConnectionState::Connected, "");
                         // ۱.۴.۰ — به‌روزرسانیِ هفتگیِ فهرست‌ها، از داخلِ همین تونل، روی ترد پس‌زمینه.
@@ -2424,7 +2605,7 @@ impl AetherController {
                             &self.profile,
                             engine::exit_socks_port(),
                         );
-                        DiagnosticsLog::i(TAG, if (self.custom.is_some() && self.profile.custom_verify_connection) || (self.custom.is_none() && self.profile.verify_connection) {"All checks passed — tunnel is ready."} else {"Initial verification skipped — data path is up; health monitoring continues."});
+                        DiagnosticsLog::i(TAG, "Smart gate passed — data flows through the tunnel, it is ready.");
                         // Refresh even when verification supplied an IP: prefer IPv4 and enrich missing country.
                         spawn_ip_lookup(self.ip_slot.clone(), true);
                     } else if out.leak.as_ref().map(|l| l.leaking).unwrap_or(false) {
@@ -2434,11 +2615,11 @@ impl AetherController {
                             "Connection refused: WebRTC can still reach the real IP over direct UDP. Browser and system protection could not be verified.",
                         );
                     } else {
-                        self.advance_or_fail("Tunnel started, but the end-to-end self-test failed");
+                        self.advance_or_fail("Tunnel started, but no real data crossed it (smart gate)");
                     }
                 // >>> AETHER-APP-PATCH tor-native-carrier
                 } else if !self.carrier_alive() {
-                    self.advance_or_fail("The engine stopped during verification");
+                    self.advance_or_fail("The engine stopped while the smart gate was proving the tunnel");
                     // <<< AETHER-APP-PATCH tor-native-carrier
                 }
             }
@@ -2516,7 +2697,10 @@ impl AetherController {
                         .spawn(move || {
                             // One keep-alive round trip on a warm session — no
                             // dial, no SSH channel open. See [`crate::ping`].
-                            if let Some(ms) = ping::measure() {
+                            // 1.5.0 (same version): every probe feeds the latency popup.
+                            let got = ping::measure();
+                            crate::pingstats::record(got);
+                            if let Some(ms) = got {
                                 *slot.lock() = Some(ms);
                             }
                         })
@@ -2599,6 +2783,27 @@ impl AetherController {
         }
     }
 
+    // >>> AETHER-APP-PATCH engine-readiness-gate (1.5.0)
+    /// The gate is for the plain engine on 1819. Tor-fronted sessions have their
+    /// own bootstrap gate, Psiphon's listener answers before Psiphon is up (it
+    /// has `psiphon_hop_ready`), and a custom upstream is Xray's business.
+    fn serve_gate_applies(&self) -> bool {
+        !self.serve_gate_passed
+            && self.engine.was_started()
+            && self.native_tor.is_none()
+            && !self.tor_front_ready
+            && !self.tor_fronted()
+            && self.custom.is_none()
+            && !self.custom_upstream_engine()
+            && !self.psiphon_exit_session()
+            && self
+                .plan
+                .get(self.plan_index)
+                .map(|c| c.profile.upstream_proxy().is_none())
+                .unwrap_or(true)
+    }
+    // <<< AETHER-APP-PATCH engine-readiness-gate (1.5.0)
+
     fn past_deadline(&self) -> bool {
         self.deadline.map(|d| Instant::now() > d).unwrap_or(false)
     }
@@ -2613,7 +2818,7 @@ impl AetherController {
         self.connected_at = None;
         self.deadline = None;
         self.reconnect_at = None;
-        self.verify_slot = None;
+        self.gate_slot = None;
         self.prep_slot = None;
         self.pending_intent = None;
         self.latency_ms = None;

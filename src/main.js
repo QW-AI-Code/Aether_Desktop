@@ -14,6 +14,8 @@ import { renderChat } from './views/chat.js'
 import { renderDiagnostics } from './views/diagnostics.js'
 import { renderShare } from './views/share.js'
 import { renderAbout } from './views/about.js'
+import { importOpenedPaths } from './views/customconfigs.js'
+import { watchForFailure } from './ui/diagshare.js'
 
 import { t, applyLang, getLang, setLangPersister, adoptStoredLang } from './i18n.js'
 import { initAi, refreshAi } from './ai.js'
@@ -142,7 +144,7 @@ export const STATE_LABEL = {
   DISCONNECTED: 'Disconnected',
   STARTING_ENGINE: 'Starting engine…',
   CONNECTING: 'Connecting…',
-  VERIFYING: 'Verifying…',
+  PROVING: 'Smart gate…',
   CONNECTED: 'Connected',
   RECONNECTING: 'Reconnecting…',
   DISCONNECTING: 'Disconnecting…',
@@ -486,6 +488,19 @@ export function rerender() {
   renderTab()
 }
 
+let openFilesWired = false
+async function drainOpenFiles() {
+  let paths = []
+  try { paths = await invoke('take_open_files') } catch (_) { return }
+  if (Array.isArray(paths) && paths.length) importOpenedPaths(paths)
+}
+function wireOpenFiles() {
+  if (openFilesWired) return
+  openFilesWired = true
+  try { Promise.resolve(listen('aether://open-files', () => { drainOpenFiles() })).catch(() => {}) } catch (_) { /* jsdom */ }
+  drainOpenFiles()
+}
+
 async function boot() {
   applyLang()
   wireWinbar()
@@ -541,6 +556,8 @@ async function boot() {
   await listen('aether://state', (event) => {
     app.snapshot = event.payload
     onConnectionState(app.snapshot?.state)
+    // 1.5.0 (same version): offer "Send diagnostics" once after a failed connection.
+    watchForFailure(app.snapshot)
     if (app.snapshot?.state !== lastGateState) {
       lastGateState = app.snapshot?.state ?? null
       refreshAi()
@@ -565,6 +582,11 @@ async function boot() {
   renderTab()
   syncLoginCode(app.snapshot?.loginCode)
   emit()
+
+  // 1.5.0 (same version): a config file opened WITH Aether (double-click /
+  // "Open with"). Rust queues the paths (`openfile.rs`); they are taken now and
+  // whenever a later launch hands over more.
+  wireOpenFiles()
 
   // >>> AETHER-APP-PATCH whats-new (1.3.0)
   // پنجرهٔ «تازه‌ها»: اولین اجرا بعد از نصب یا ارتقا (تا وقتی کاربر برای همین

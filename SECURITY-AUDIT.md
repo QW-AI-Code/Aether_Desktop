@@ -1,4 +1,4 @@
-> **Historical document (1.2.5).** The current 1.4.0 audit, with the 8-area score table and `cargo audit` / `npm audit` results, is in `release-notes.md`.
+> **Historical document (1.2.5).** The 1.4.0 audit (8-area score table, `cargo audit` / `npm audit` results) and the 1.5.0 security notes are in `release-notes.md`.
 
 # Aether Desktop 1.2.5 Security Audit
 

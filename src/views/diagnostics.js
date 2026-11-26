@@ -155,7 +155,7 @@ export function renderDiagnostics() {
         : t('WebRTC protected — no IP leak')
       toast(summaryEl.textContent)
     } catch (e) {
-      summaryEl.textContent = String(e)
+      summaryEl.textContent = t(String(e))
     }
     await refresh()
   })

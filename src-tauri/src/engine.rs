@@ -66,6 +66,12 @@ const GRACEFUL_EXIT_MS: u64 = 250;
 /// (`procguard.rs`) clears orphans from all of them at start-up.
 pub const FIXED_PORTS: [u16; 3] = [LOCAL_SOCKS_PORT, TOR_SOCKS_PORT, CHAIN_SOCKS_PORT];
 
+/// AETHER-APP-PATCH race-own-identity: identity base of Smart race lanes. The
+/// core derives `aether-race-masque.toml`, `aether-race-lastconn.toml`, ... from it.
+pub const RACE_IDENTITY_BASE: &str = "aether-race.toml";
+/// Common prefix of every file derived from [`RACE_IDENTITY_BASE`].
+pub const RACE_IDENTITY_STEM: &str = "aether-race";
+
 static EXIT_SOCKS_PORT: AtomicU16 = AtomicU16::new(LOCAL_SOCKS_PORT);
 
 // >>> AETHER-APP-FIX tor-psiphon-waits-for-psiphon
@@ -258,6 +264,11 @@ pub struct AetherProcess {
     /// دلِ 1819). فقط وقتی کانفیگِ سفارشی روشن است `true` می‌شود.
     psiphon_only: bool,
     // <<< AETHER-APP-PATCH custom-configs-psiphon-only
+    // >>> AETHER-APP-PATCH engine-readiness-gate (1.5.0)
+    /// Readiness of the *current* process: did it print the serving line, and
+    /// what was its fatal `Error:` line. A fresh one per start; see `readiness.rs`.
+    ready: std::sync::Arc<crate::readiness::Readiness>,
+    // <<< AETHER-APP-PATCH engine-readiness-gate (1.5.0)
 }
 
 impl AetherProcess {
@@ -286,6 +297,7 @@ impl AetherProcess {
             chain_trace:None,
             tree: None,
             psiphon_only: false,
+            ready: crate::readiness::Readiness::new(),
         }
     }
 
@@ -293,7 +305,9 @@ impl AetherProcess {
     pub fn set_chain_trace(&mut self,id:Option<String>){self.chain_trace=id;}
     pub fn owns_probe_listener(&self,port:u16)->bool{self.child.as_ref().map(|c|crate::procguard::listener_pid(port)==Some(c.id())).unwrap_or(false)}
     pub fn probe_bind_port(&self)->Option<u16>{self.probe_port}
-    pub fn fork_probe(&self,port:u16)->Self{Self{exe:self.exe.clone(),working_dir:self.working_dir.clone(),bundled_dir:self.bundled_dir.clone(),caps:self.caps,child:None,uses_tor:false,upstream_socks:None,custom_tcp_upstream:false,probe_port:Some(port),chain_trace:None,tree:None,psiphon_only:false}}
+    pub fn fork_probe(&self,port:u16)->Self{Self{exe:self.exe.clone(),working_dir:self.working_dir.clone(),bundled_dir:self.bundled_dir.clone(),caps:self.caps,child:None,uses_tor:false,upstream_socks:None,custom_tcp_upstream:false,probe_port:Some(port),chain_trace:None,tree:None,psiphon_only:false,ready:crate::readiness::Readiness::new()}}
+    /// Readiness of the engine process started last (session or race lane).
+    pub fn readiness(&self)->std::sync::Arc<crate::readiness::Readiness>{self.ready.clone()}
     /// The engine, not the desktop, launches this bundled client. Runtime staging
     /// can fall back to the installation directory; both paths are checked.
     pub fn psiphon_assets(&self) -> Result<(PathBuf, PathBuf)> {
@@ -486,6 +500,92 @@ impl AetherProcess {
         }
     }
     // <<< AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
+
+    // >>> AETHER-APP-PATCH race-own-identity (1.5.0, same version)
+    /// Copies the gateway caches the race lanes proved (`aether-race*-lastconn.toml`)
+    /// to the session's names (`aether*-lastconn.toml`), so the confirming
+    /// session reuses the exact gateway that just carried traffic instead of
+    /// scanning again. Call while no session engine runs. Returns the count.
+    pub fn adopt_race_gateways(&self) -> usize {
+        let mut dirs = vec![self.run_dir()];
+        if !dirs.contains(&self.working_dir) {
+            dirs.push(self.working_dir.clone());
+        }
+        let mut adopted = 0;
+        for dir in dirs {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !(name.starts_with(RACE_IDENTITY_STEM) && name.ends_with("-lastconn.toml")) {
+                    continue;
+                }
+                let session_name = name.replacen(RACE_IDENTITY_STEM, "aether", 1);
+                if std::fs::copy(entry.path(), dir.join(&session_name)).is_ok() {
+                    adopted += 1;
+                    DiagnosticsLog::i(
+                        "engine",
+                        &format!("Smart: the session reuses the gateway the race proved ({name} -> {session_name})."),
+                    );
+                }
+            }
+        }
+        adopted
+    }
+    // <<< AETHER-APP-PATCH race-own-identity
+
+    // >>> AETHER-APP-PATCH smart-brain-identity-heal (1.5.0, same version)
+    /// Removes every engine identity file (`aether*.toml`, and a `.corrupt` copy)
+    /// in the run folders that is not UTF-8 text, so the next start provisions a
+    /// fresh identity.
+    ///
+    /// ROOT CAUSE (mobile field log, core 2.4.0): `config::load` read the
+    /// identity with `read_to_string`; a damaged copy made the engine exit 0.4 s
+    /// after every start with `Io(InvalidData, "stream did not contain valid
+    /// UTF-8")` - on every protocol, forever. The core overlay now quarantines
+    /// such a file itself; this is the app-side half for an engine binary that
+    /// does not have the overlay yet. A healthy file is never touched. Must only
+    /// be called while the engine is stopped. Returns how many files were removed.
+    pub fn heal_damaged_identity(&self) -> usize {
+        let mut dirs = vec![self.run_dir()];
+        if !dirs.contains(&self.working_dir) {
+            dirs.push(self.working_dir.clone());
+        }
+        let mut moved = 0;
+        for dir in dirs {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !(name.starts_with("aether")
+                    && (name.ends_with(".toml") || name.ends_with(".toml.corrupt")))
+                {
+                    continue;
+                }
+                let Ok(bytes) = std::fs::read(entry.path()) else {
+                    continue;
+                };
+                let damaged = std::str::from_utf8(&bytes).is_err() || bytes.contains(&0u8);
+                if !damaged {
+                    continue;
+                }
+                // Removed, not renamed: a damaged copy is unusable for the engine,
+                // and the audit rule is that no extra copy of identity material
+                // (the WireGuard private key) is left on disk.
+                if std::fs::remove_file(entry.path()).is_ok() {
+                    moved += 1;
+                    DiagnosticsLog::w(
+                        "engine",
+                        &format!("Engine identity {name} was damaged (not UTF-8) - removed so a fresh identity is provisioned."),
+                    );
+                }
+            }
+        }
+        moved
+    }
+    // <<< AETHER-APP-PATCH smart-brain-identity-heal
 
     pub fn start(
         &mut self,
@@ -716,9 +816,30 @@ impl AetherProcess {
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
+        // >>> AETHER-APP-PATCH race-own-identity (1.5.0, same version)
+        // ROOT CAUSE of the slow "Aether only" connects (Windows field logs,
+        // 2026-11-26): a Smart race lane proved MASQUE in 7-11 s, was killed with
+        // TerminateProcess (no graceful close of its HTTP/2 session on Windows),
+        // and the confirming session started 0.3 s later on the SAME WARP device
+        // identity and the same inner address. Cloudflare still held the lane's
+        // connect-ip session: the confirm got `connect-ip status 400` on every
+        // gateway, or 200 with no return traffic (`net->app 0 pkts`), the self-
+        // test failed after 45 s and the whole last-resort scan followed. Race
+        // lanes now run on an identity of their own (`aether-race*.toml`), so the
+        // session never collides with a lane; the proven gateway is handed over
+        // through its cache file (`adopt_race_gateways`). Zero Trust profiles
+        // keep the shared identity: a race must never enrol extra team devices.
+        if self.probe_port.is_some() && !profile.uses_zero_trust() {
+            cmd.env("AETHER_CONFIG", RACE_IDENTITY_BASE);
+        }
+        // <<< AETHER-APP-PATCH race-own-identity
+
         // >>> AETHER-APP-FIX tor-psiphon-waits-for-psiphon
         if self.probe_port.is_none(){PSIPHON_READY.store(false, Ordering::SeqCst);}
         // <<< AETHER-APP-FIX tor-psiphon-waits-for-psiphon
+        // AETHER-APP-PATCH engine-readiness-gate: fresh per process, so a late line
+        // of an older engine can never mark this one as serving.
+        self.ready = crate::readiness::Readiness::new();
         let mut child = cmd.spawn()?;
         // Before anything else: from here on the engine and every process it
         // starts die with this app, however the app ends.
@@ -753,10 +874,10 @@ impl AetherProcess {
 
         // درنگ کردن stdout و stderr — دقیقاً مثل ترد «aether-log» در اندروید.
         if let Some(out) = child.stdout.take() {
-            if self.probe_port.is_some(){spawn_probe_drain(out);}else{spawn_drain(out, generation);}
+            if self.probe_port.is_some(){spawn_probe_drain(out, self.ready.clone());}else{spawn_drain(out, generation, self.ready.clone());}
         }
         if let Some(err) = child.stderr.take() {
-            if self.probe_port.is_some(){spawn_probe_drain(err);}else{spawn_drain(err, None);}
+            if self.probe_port.is_some(){spawn_probe_drain(err, self.ready.clone());}else{spawn_drain(err, None, self.ready.clone());}
         }
 
         self.child = Some(child);
@@ -1078,11 +1199,17 @@ fn tor_runtime_dirs(working_dir: &Path) -> Vec<(String, String)> {
     env
 }
 
-fn spawn_drain<R: std::io::Read + Send + 'static>(reader: R, prompt_generation: Option<u64>) {
+fn spawn_drain<R: std::io::Read + Send + 'static>(
+    reader: R,
+    prompt_generation: Option<u64>,
+    ready: std::sync::Arc<crate::readiness::Readiness>,
+) {
     std::thread::Builder::new()
         .name("aether-log".into())
         .spawn(move || {
             for line in BufReader::new(reader).lines().map_while(Result::ok) {
+                // AETHER-APP-PATCH engine-readiness-gate: serving line / fatal line.
+                ready.ingest(&line);
                 // مثل اندروید: خروجی موتور فقط به لاگ خصوصیِ برنامه می‌رود،
                 // نه به جایی که بقیهٔ سیستم بخواند (معادل ممنوعیت Logcat).
                 DiagnosticsLog::d("engine", &line);
@@ -1186,4 +1313,4 @@ mod gateway_cache_tests {
 }
 // <<< AETHER-APP-FIX forget-a-gateway-that-failed-its-proof
 
-fn spawn_probe_drain<R:std::io::Read+Send+'static>(reader:R){std::thread::spawn(move||{for line in BufReader::new(reader).lines().map_while(Result::ok){DiagnosticsLog::d("smart+-engine",&crate::custom::process::redact(&line));}});}
+fn spawn_probe_drain<R:std::io::Read+Send+'static>(reader:R,ready:std::sync::Arc<crate::readiness::Readiness>){std::thread::spawn(move||{for line in BufReader::new(reader).lines().map_while(Result::ok){ready.ingest(&line);DiagnosticsLog::d("smart+-engine",&crate::custom::process::redact(&line));}});}

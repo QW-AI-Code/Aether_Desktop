@@ -18,7 +18,7 @@
 //  پیامی که در حال ویرایش است، و متنی که در جعبهٔ ورودی تایپ شده. هیچ‌کدام پس از
 //  بستنِ برنامه معنا ندارند و نگه‌داشتنشان در Rust یعنی یک IPC برای هر تیک.
 
-import { t } from '../i18n.js'
+import { t, getLang, tAiError } from '../i18n.js'
 import {
   ai,
   onAiChange,
@@ -124,7 +124,10 @@ function bubble(message, ctx) {
     head.className = 'chat__failhead'
     head.textContent = failureText(message.errorKind)
     body.appendChild(head)
-    if (message.text && message.text.trim()) {
+    // 1.5.0 (same version): in Persian, Google's raw English text is not shown
+    // under the translated sentence (it stays in the diagnostics log).
+    const rawEnglish = getLang() === 'fa' && !/[\u0600-\u06FF]/.test(message.text || '')
+    if (message.text && message.text.trim() && !rawEnglish) {
       const detail = document.createElement('div')
       detail.className = 'chat__faildetail'
       detail.dir = 'auto'
@@ -620,7 +623,7 @@ export function renderChat() {
         })
         .catch((error) => {
           if (button) button.disabled = false
-          toast(String(error))
+          toast(tAiError(error))
         })
     },
     toggle: (id) => {
